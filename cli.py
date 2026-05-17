@@ -1105,6 +1105,8 @@ def _run_cleanup(*, notify_session_finalize: bool = True):
     if notify_session_finalize:
         cleanup_session_id = _active_agent_ref.session_id if _active_agent_ref else None
         if _should_emit_cleanup_session_finalize(cleanup_session_id):
+            # _notify_session_finalize resolves and forwards agent_id from the
+            # active profile, so the multi-agent identity reaches plugins.
             _notify_session_finalize(
                 session_id=cleanup_session_id,
                 platform="cli",
@@ -1165,11 +1167,20 @@ def _notify_session_finalize(
 ) -> None:
     try:
         from hermes_cli.plugins import invoke_hook as _invoke_hook
+        _agent_id = None
+        try:
+            from agent.profile import get_active_profile
+            _p = get_active_profile()
+            if _p:
+                _agent_id = _p.id
+        except Exception:
+            pass
         _invoke_hook(
             "on_session_finalize",
             session_id=session_id,
             platform=platform,
             reason=reason,
+            agent_id=_agent_id,
         )
     except Exception:
         pass
@@ -6938,12 +6949,21 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         lifecycle point (shutdown, /new, /reset).
         """
         try:
-            from hermes_cli.plugins import invoke_hook as _invoke_hook
-            _invoke_hook(
+            import hermes_cli.plugins as _plugins
+            _agent_id = None
+            try:
+                from agent.profile import get_active_profile
+                _p = get_active_profile()
+                if _p:
+                    _agent_id = _p.id
+            except Exception:
+                pass
+            _plugins.invoke_hook(
                 event_type,
                 session_id=self.agent.session_id if self.agent else None,
                 platform=getattr(self, "platform", None) or "cli",
                 reason="new_session" if event_type == "on_session_reset" else "session_boundary",
+                agent_id=_agent_id,
             )
         except Exception:
             pass
@@ -15643,6 +15663,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if self.agent and getattr(self, '_agent_running', False):
                 try:
                     from hermes_cli.plugins import invoke_hook as _invoke_hook
+                    _agent_id = None
+                    try:
+                        from agent.profile import get_active_profile
+                        _p = get_active_profile()
+                        if _p:
+                            _agent_id = _p.id
+                    except Exception:
+                        pass
                     _invoke_hook(
                         "on_session_end",
                         session_id=self.agent.session_id,
@@ -15651,6 +15679,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         model=getattr(self.agent, 'model', None),
                         platform=getattr(self.agent, 'platform', None) or "cli",
                         reason="shutdown",
+                        agent_id=_agent_id,
                     )
                 except Exception:
                     pass
