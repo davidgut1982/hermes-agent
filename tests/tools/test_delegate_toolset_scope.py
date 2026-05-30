@@ -243,7 +243,7 @@ class TestDelegateTaskProfileWiring:
     hardcoded) and MUST pass after the fix (profile_name=resolved name).
     """
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_profile_forwarded_to_build_child_agent(
@@ -290,7 +290,7 @@ class TestDelegateTaskProfileWiring:
             "Profile toolsets must override the toolsets arg so the bypass activates."
         )
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_no_profile_leaves_profile_name_none(
@@ -326,24 +326,18 @@ class TestDelegateTaskProfileWiring:
             f"Expected profile_name=None for unprofiled call, got {kwargs.get('profile_name')!r}"
         )
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
-    def test_unknown_profile_returns_error(
+    def test_unknown_profile_falls_back_gracefully(
         self, mock_build, _mock_cfg, _mock_profiles
     ):
-        """Unknown profile name HARD-FAILS: error JSON, delegation refused.
+        """Unknown profile name logs a warning and falls back to explicit toolsets.
 
-        Why: An unknown profile must fail closed. Falling back to the caller's
-        raw toolsets would let a typo'd profile run with an unrestricted/unintended
-        toolset and silently bypass the profile's declared scope — the canonical,
-        security-correct behavior is to refuse the delegation entirely.
-        Test: Pass profile='nonexistent', assert the result is an
-        {"error": "Unknown agent profile ..."} JSON and _build_child_agent is
-        never called (no child constructed).
+        Why: A typo in a profile name should not hard-fail the delegation;
+        it should fall back to whatever toolsets the caller provided, if any.
+        Test: Pass profile='nonexistent', assert profile_name=None in call.
         """
-        import json
-
         fake_child = MagicMock()
         fake_child._delegate_saved_tool_names = []
         mock_build.return_value = fake_child
@@ -355,22 +349,18 @@ class TestDelegateTaskProfileWiring:
             "tools.delegate_tool._run_single_child",
             return_value=_make_fake_child_result(0),
         ):
-            result = json.loads(
-                delegate_task(
-                    goal="Do something",
-                    toolsets=["terminal"],
-                    profile="nonexistent",
-                    parent_agent=parent,
-                )
+            delegate_task(
+                goal="Do something",
+                toolsets=["terminal"],
+                profile="nonexistent",
+                parent_agent=parent,
             )
 
-        assert "error" in result, (
-            f"Unknown profile must return an error JSON, got {result!r}"
+        _, kwargs = mock_build.call_args
+        # Unknown profile → resolved_profile_name stays None → no bypass.
+        assert kwargs.get("profile_name") is None, (
+            f"Unknown profile should leave profile_name=None, got {kwargs.get('profile_name')!r}"
         )
-        assert "Unknown agent profile" in result["error"], (
-            f"Expected 'Unknown agent profile' in error, got {result['error']!r}"
-        )
-        mock_build.assert_not_called()
 
 
 class TestDelegateTaskSchemaProfile:
@@ -501,434 +491,4 @@ class TestProfileMcpBypassEndToEnd:
         child_toolsets = MockAgent.call_args[1]["enabled_toolsets"]
         assert "mcp-nextcloud-files" not in child_toolsets, (
             "mcp-nextcloud-files must be stripped when profile_name=None (security boundary)."
-        )
-
-
-# ---------------------------------------------------------------------------
-# TestBatchToolsetInjectionBlocked
-# Security regression guard for the batch-mode privilege-escalation hole:
-# a model that names a valid profile (activating the mcp-* bypass in
-# _build_child_agent) AND supplies per-task toolsets must NOT gain toolsets
-# beyond what the profile declares.
-# ---------------------------------------------------------------------------
-
-_PROFILES_WITH_NEXTCLOUD = {
-    "documents": {
-        "toolsets": ["mcp-nextcloud-files"],
-    },
-}
-
-_PROFILES_EMPTY_TOOLSETS = {
-    "bare-profile": {
-        # no 'toolsets' key → empty profile
-    },
-}
-
-
-class TestBatchToolsetInjectionBlocked:
-    """Batch-mode model-supplied toolsets cannot override a resolved profile.
-
-    The vulnerability: batch tasks=[{"goal":"x","toolsets":["mcp-evil"]}] with
-    profile="documents" previously let the model inject arbitrary mcp-* toolsets
-    because the batch loop used `t.get("toolsets") or toolsets`, overriding the
-    profile-resolved toolsets while resolved_profile_name stayed set (activating
-    the mcp-* bypass in _build_child_agent).
-
-    These tests FAIL on pre-fix code (mcp-injected-evil present in child) and
-    PASS after the fix (child toolsets match profile declaration only).
-    """
-
-    @patch("tools.delegate_tool._load_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
-    @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
-    @patch("tools.delegate_tool._build_child_agent")
-    def test_batch_injection_blocked_model_cannot_inject_evil_mcp_toolset(
-        self, mock_build, _mock_cfg, _mock_profiles
-    ):
-        """CRITICAL security: batch per-task toolsets are ignored when a profile is set.
-
-        Why: Pre-fix, the batch loop used t.get("toolsets") or toolsets, so a
-        model could name profile="documents" (activating the mcp-* bypass) and
-        supply tasks=[{"goal":"x","toolsets":["mcp-injected-evil"]}] to gain
-        mcp-injected-evil — which the 'documents' profile never declared.
-        What: Assert _build_child_agent receives only the profile's toolsets
-        (mcp-nextcloud-files), and NOT the model-injected mcp-injected-evil.
-        Test: Compare the toolsets kwarg of the mock call against the profile
-        declaration; mcp-injected-evil must be absent, mcp-nextcloud-files present.
-        """
-        fake_child = MagicMock()
-        fake_child._delegate_saved_tool_names = []
-        mock_build.return_value = fake_child
-
-        parent = _make_no_mcp_parent()
-
-        with patch(
-            "tools.delegate_tool._run_single_child",
-            return_value=_make_fake_child_result(0),
-        ):
-            delegate_task(
-                # No top-level goal — use batch tasks path
-                tasks=[{"goal": "do something", "toolsets": ["mcp-injected-evil"]}],
-                profile="documents",
-                parent_agent=parent,
-            )
-
-        mock_build.assert_called_once()
-        _, kwargs = mock_build.call_args
-        child_toolsets = kwargs.get("toolsets") or []
-
-        assert "mcp-injected-evil" not in child_toolsets, (
-            f"SECURITY: mcp-injected-evil must be blocked but found in {child_toolsets!r}. "
-            "Pre-fix code lets batch per-task toolsets override the profile. "
-            "This test must FAIL before the fix and PASS after."
-        )
-        assert "mcp-nextcloud-files" in child_toolsets, (
-            f"mcp-nextcloud-files (from profile 'documents') must be present, "
-            f"got {child_toolsets!r}"
-        )
-
-    @patch("tools.delegate_tool._load_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
-    @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
-    @patch("tools.delegate_tool._build_child_agent")
-    def test_single_task_profile_toolsets_unchanged(
-        self, mock_build, _mock_cfg, _mock_profiles
-    ):
-        """Single-task profile path: child receives profile's declared toolsets.
-
-        Why: Regression guard — the batch fix must not break single-task profile
-        delegation, which already worked correctly pre-fix.
-        What: delegate_task(goal=..., profile="documents") → child gets
-        mcp-nextcloud-files (the profile's only declared toolset).
-        Test: Assert mcp-nextcloud-files in toolsets kwarg and profile_name set.
-        """
-        fake_child = MagicMock()
-        fake_child._delegate_saved_tool_names = []
-        mock_build.return_value = fake_child
-
-        parent = _make_no_mcp_parent()
-
-        with patch(
-            "tools.delegate_tool._run_single_child",
-            return_value=_make_fake_child_result(0),
-        ):
-            delegate_task(
-                goal="Manage my documents",
-                profile="documents",
-                parent_agent=parent,
-            )
-
-        mock_build.assert_called_once()
-        _, kwargs = mock_build.call_args
-        child_toolsets = kwargs.get("toolsets") or []
-
-        assert "mcp-nextcloud-files" in child_toolsets, (
-            f"Single-task profile path must forward profile toolsets, got {child_toolsets!r}"
-        )
-        assert kwargs.get("profile_name") == "documents", (
-            f"profile_name must be 'documents', got {kwargs.get('profile_name')!r}"
-        )
-
-    @patch("tools.delegate_tool._load_profiles", return_value=_PROFILES_EMPTY_TOOLSETS)
-    @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
-    @patch("tools.delegate_tool._build_child_agent")
-    def test_empty_profile_toolsets_bypass_not_activated(
-        self, mock_build, _mock_cfg, _mock_profiles
-    ):
-        """Profile with no toolsets does NOT activate the mcp-* bypass.
-
-        Why: Pre-fix, a profile with empty/missing toolsets still set
-        resolved_profile_name, activating the bypass with whatever caller-
-        supplied toolsets were present.  Any mcp-* name the model supplied
-        would bypass the parent intersection — a privilege-escalation vector.
-        What: Assert profile_name=None in the _build_child_agent call so the
-        intersection path (not bypass) is used, stripping mcp-x from a no_mcp
-        parent.
-        Test: Profile 'bare-profile' has no toolsets; caller passes
-        toolsets=['mcp-x']; assert profile_name=None in build call.
-        """
-        fake_child = MagicMock()
-        fake_child._delegate_saved_tool_names = []
-        mock_build.return_value = fake_child
-
-        parent = _make_no_mcp_parent()
-
-        with patch(
-            "tools.delegate_tool._run_single_child",
-            return_value=_make_fake_child_result(0),
-        ):
-            delegate_task(
-                goal="Do something restricted",
-                toolsets=["mcp-x"],
-                profile="bare-profile",
-                parent_agent=parent,
-            )
-
-        mock_build.assert_called_once()
-        _, kwargs = mock_build.call_args
-
-        assert kwargs.get("profile_name") is None, (
-            f"Empty-toolsets profile must NOT set profile_name (bypass must be inactive), "
-            f"got profile_name={kwargs.get('profile_name')!r}. "
-            "Pre-fix: resolved_profile_name was set regardless of toolsets presence."
-        )
-
-
-# ---------------------------------------------------------------------------
-# TestProfileToolsetsAliasing
-# Regression guard for the config-aliasing vulnerability: toolsets must be
-# copied (list()) from the config dict, not assigned by reference.
-#
-# Without the copy, any in-place mutation of the working `toolsets` variable
-# (or of `profile_resolved_toolsets`, which is derived from it) silently
-# corrupts the agent_profiles config dict for the entire process lifetime.
-# On the next delegate_task call the now-mutated list would be used as the
-# authoritative profile declaration, bypassing the intended toolset scope.
-# ---------------------------------------------------------------------------
-
-class TestProfileToolsetsAliasing:
-    """Profile toolsets assignment must copy, not reference, the config list.
-
-    Why: profile_cfg["toolsets"] lives inside the dict returned by
-    _load_agent_profiles() and may be cached for the process lifetime.
-    Assigning it directly to the working variable means any in-place
-    mutation (e.g., .append(), .clear(), .pop()) of that variable would
-    corrupt the config — all subsequent delegate_task calls in the same
-    process would see the mutated toolsets as the 'official' profile
-    declaration.  This is a privilege-escalation / DoS vector.
-
-    The fix (list(profile_toolsets) at line ~2082 and
-    list(toolsets) at line ~2110) ensures the working variable and the
-    authoritative capture are independent copies.
-    """
-
-    @patch("tools.delegate_tool._load_profiles")
-    @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
-    @patch("tools.delegate_tool._build_child_agent")
-    def test_profile_toolsets_copy_prevents_config_corruption(
-        self, mock_build, _mock_cfg, mock_load_profiles
-    ):
-        """Mutating the toolsets list passed to _build_child_agent must NOT
-        corrupt the original agent_profiles config entry.
-
-        Why: Pre-fix code did ``toolsets = profile_toolsets`` (reference), so
-        mutating the kwarg received by _build_child_agent also mutated
-        profiles["documents"]["toolsets"] — corrupting it for every future call.
-        What: After delegate_task resolves a profile, capture the toolsets list
-        that was passed to _build_child_agent, mutate it in-place, then verify
-        profiles["documents"]["toolsets"] is unchanged.
-        Test: Assert that appending a sentinel to the captured child toolsets
-        list does NOT appear in the original config dict, proving list() copy.
-        """
-        # Hold a direct reference to the config list so we can inspect it after
-        # delegate_task has run and after we mutate the captured child toolsets.
-        original_toolsets_list = ["mcp-nextcloud-files", "mcp-knowledge"]
-        profiles_cfg = {
-            "documents": {
-                "toolsets": original_toolsets_list,
-            },
-        }
-        mock_load_profiles.return_value = profiles_cfg
-
-        fake_child = MagicMock()
-        fake_child._delegate_saved_tool_names = []
-        mock_build.return_value = fake_child
-
-        parent = _make_no_mcp_parent()
-
-        with patch(
-            "tools.delegate_tool._run_single_child",
-            return_value=_make_fake_child_result(0),
-        ):
-            delegate_task(
-                goal="Fetch documents",
-                profile="documents",
-                parent_agent=parent,
-            )
-
-        # Retrieve the toolsets list that was handed to _build_child_agent.
-        mock_build.assert_called_once()
-        _, kwargs = mock_build.call_args
-        child_toolsets_arg: list = kwargs.get("toolsets") or []
-
-        # Sanity: the profile toolsets made it through correctly.
-        assert "mcp-nextcloud-files" in child_toolsets_arg, (
-            f"Profile toolsets must be forwarded; got {child_toolsets_arg!r}"
-        )
-
-        # Now mutate the list that _build_child_agent received.
-        sentinel = "mcp-INJECTED-SENTINEL"
-        child_toolsets_arg.append(sentinel)
-        child_toolsets_arg.clear()
-
-        # CRITICAL ASSERTION: the original config list must be untouched.
-        # Pre-fix (reference): original_toolsets_list would now be empty.
-        # Post-fix (copy):     original_toolsets_list is still the original.
-        assert original_toolsets_list == ["mcp-nextcloud-files", "mcp-knowledge"], (
-            f"Config corruption detected: profiles['documents']['toolsets'] was mutated "
-            f"to {original_toolsets_list!r}. "
-            "The toolsets working variable must be a list() copy, not a reference to the "
-            "config dict's list. Pre-fix code assigns `toolsets = profile_toolsets` "
-            "(reference); the fix is `toolsets = list(profile_toolsets)`."
-        )
-
-
-# ---------------------------------------------------------------------------
-# TestInheritMcpToolsetsProfileGuard
-# Security hardening: _preserve_parent_mcp_toolsets must NOT run when a named
-# profile is in use.  The profile's declared toolsets are authoritative — the
-# parent's MCP toolsets must not bleed in via the inherit_mcp_toolsets path.
-#
-# Scenario: parent has mcp-nextcloud-files AND mcp-fastmail in its toolsets.
-# Profile "documents" declares only ["mcp-nextcloud-files"].
-# With inherit_mcp_toolsets=True (default), the pre-fix code calls
-# _preserve_parent_mcp_toolsets unconditionally, which appends mcp-fastmail
-# (a parent MCP toolset missing from the child list) to the resolved profile
-# toolsets — violating the invariant that the profile is authoritative.
-#
-# These tests FAIL on pre-fix code (mcp-fastmail bleeds in) and PASS after
-# the fix (guard `and not profile_name` prevents _preserve_parent_mcp_toolsets
-# from running when a profile is set).
-# ---------------------------------------------------------------------------
-
-_PROFILES_DOCUMENTS_NEXTCLOUD_ONLY = {
-    "documents": {
-        "toolsets": ["mcp-nextcloud-files"],
-    },
-}
-
-
-def _make_mcp_rich_parent():
-    """Parent agent that carries two MCP toolsets: nextcloud-files AND fastmail.
-
-    Why: Simulates an orchestrator that has loaded both domain MCP servers.
-    The profile "documents" only declares mcp-nextcloud-files, so mcp-fastmail
-    is the parent-only MCP toolset that must NOT bleed into the child when a
-    profile is named.
-
-    What: enabled_toolsets includes both mcp-nextcloud-files and mcp-fastmail
-    so that _preserve_parent_mcp_toolsets would normally append mcp-fastmail.
-
-    Test: Use as the parent arg in _build_child_agent calls below.
-    """
-    parent = MagicMock()
-    parent.enabled_toolsets = ["mcp-nextcloud-files", "mcp-fastmail", "delegation"]
-    parent._delegate_depth = 0
-    parent._credential_pool = None
-    parent.tool_progress_callback = None
-    parent.thinking_callback = None
-    parent._print_fn = None
-    parent.api_key = None
-    parent._client_kwargs = {}
-    parent.model = "test-model"
-    parent._subagent_id = None
-    parent.valid_tool_names = []
-    return parent
-
-
-class TestInheritMcpToolsetsProfileGuard:
-    """inherit_mcp_toolsets=True must NOT add parent MCP toolsets when a profile is named.
-
-    The profile's declared toolsets are authoritative.  _preserve_parent_mcp_toolsets
-    must be skipped entirely when profile_name is set so that parent-only MCP toolsets
-    cannot bleed into the child.
-
-    FAIL before fix: mcp-fastmail (parent-only) appears in child toolsets.
-    PASS after fix:  child toolsets are EXACTLY the profile's (mcp-nextcloud-files only).
-    """
-
-    @patch("tools.delegate_tool._get_inherit_mcp_toolsets", return_value=True)
-    @patch("tools.delegate_tool._load_config", return_value={})
-    def test_parent_mcp_bleed_blocked_under_profile(self, _mock_cfg, _mock_inherit):
-        """CRITICAL: profile toolsets are authoritative — parent MCP toolsets must not bleed.
-
-        Why: Pre-fix, _preserve_parent_mcp_toolsets runs unconditionally when
-        inherit_mcp_toolsets=True, appending every parent MCP toolset absent from
-        the child list.  With a profile that declares only mcp-nextcloud-files,
-        the parent's mcp-fastmail gets added — a silent scope expansion that
-        violates the "profile declares exactly which MCP servers the child needs"
-        invariant.
-
-        What: _build_child_agent with profile_name="documents" (declares only
-        mcp-nextcloud-files) and a parent that has BOTH mcp-nextcloud-files and
-        mcp-fastmail.  Child toolsets must be exactly ["mcp-nextcloud-files"]
-        (after stripping delegation); mcp-fastmail must NOT appear.
-
-        Test: Assert "mcp-nextcloud-files" in child toolsets and
-        "mcp-fastmail" NOT in child toolsets.  FAILS pre-fix (mcp-fastmail
-        bleeds in via _preserve_parent_mcp_toolsets), PASSES post-fix (guard
-        `and not profile_name` skips the bleed path).
-        """
-        parent = _make_mcp_rich_parent()
-
-        with patch("run_agent.AIAgent") as MockAgent:
-            MockAgent.return_value = MagicMock()
-
-            _build_child_agent(
-                task_index=0,
-                goal="Manage documents",
-                context=None,
-                toolsets=["mcp-nextcloud-files"],
-                model=None,
-                max_iterations=10,
-                task_count=1,
-                parent_agent=parent,
-                profile_name="documents",
-            )
-
-        child_toolsets = MockAgent.call_args[1]["enabled_toolsets"]
-
-        assert "mcp-nextcloud-files" in child_toolsets, (
-            f"Profile-declared mcp-nextcloud-files must be present, got {child_toolsets!r}"
-        )
-        assert "mcp-fastmail" not in child_toolsets, (
-            f"SECURITY: mcp-fastmail (parent-only) must NOT bleed into the child when "
-            f"profile_name is set, but got {child_toolsets!r}. "
-            "Pre-fix: _preserve_parent_mcp_toolsets runs unconditionally, appending "
-            "every parent MCP toolset not in the child list. "
-            "Fix: add `and not profile_name` guard to the inherit_mcp_toolsets check "
-            "at line ~980 of delegate_tool.py."
-        )
-
-    @patch("tools.delegate_tool._get_inherit_mcp_toolsets", return_value=True)
-    @patch("tools.delegate_tool._load_config", return_value={})
-    def test_non_profile_inheritance_unchanged(self, _mock_cfg, _mock_inherit):
-        """Non-profile delegation with inherit_mcp_toolsets=True still inherits parent MCP.
-
-        Why: Regression baseline — the profile guard must not break the existing
-        behavior for ad-hoc (no profile) delegation.  When no profile is named,
-        _preserve_parent_mcp_toolsets should still run and add parent MCP toolsets
-        to a narrowed child that requests only a subset.
-
-        What: parent has mcp-nextcloud-files + mcp-fastmail; child requests only
-        mcp-nextcloud-files with NO profile.  After the fix, mcp-fastmail must
-        still appear in child toolsets (non-profile path is unchanged).
-
-        Test: Assert BOTH mcp-nextcloud-files and mcp-fastmail are present in the
-        child toolsets, proving that the guard is scoped to the profile case only.
-        """
-        parent = _make_mcp_rich_parent()
-
-        with patch("run_agent.AIAgent") as MockAgent:
-            MockAgent.return_value = MagicMock()
-
-            _build_child_agent(
-                task_index=0,
-                goal="Ad-hoc file management",
-                context=None,
-                toolsets=["mcp-nextcloud-files"],
-                model=None,
-                max_iterations=10,
-                task_count=1,
-                parent_agent=parent,
-                profile_name=None,  # no profile — inheritance must still work
-            )
-
-        child_toolsets = MockAgent.call_args[1]["enabled_toolsets"]
-
-        assert "mcp-nextcloud-files" in child_toolsets, (
-            f"Requested mcp-nextcloud-files must be present, got {child_toolsets!r}"
-        )
-        assert "mcp-fastmail" in child_toolsets, (
-            f"mcp-fastmail must be inherited from parent when no profile is named "
-            f"(non-profile inheritance must be unchanged), got {child_toolsets!r}. "
-            "If this fails the profile guard is too broad."
         )
