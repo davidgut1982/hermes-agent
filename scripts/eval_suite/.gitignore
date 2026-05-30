@@ -1,0 +1,7 @@
+# Ignore generated run output but track the canonical baseline
+out/*.jsonl
+!out/scores_baseline.jsonl
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
