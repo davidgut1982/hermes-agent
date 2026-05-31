@@ -1137,10 +1137,17 @@ def _build_child_agent(
     # the active platform skipped eager discovery via the no_mcp sentinel
     # (Phase 2). Runs for ALL MCP-needing child builds, not just profile-named
     # ones, so the child sees a populated MCP registry before AIAgent builds.
+    # Guard: ensure_mcp_discovered lives in #32727 code; if that branch has not
+    # been merged yet the symbol won't exist — degrade gracefully rather than
+    # crashing every child build that requests an MCP toolset.
     if any(_is_mcp_toolset_name(t) for t in child_toolsets):
-        from tools.mcp_tool import ensure_mcp_discovered
+        try:
+            from tools.mcp_tool import ensure_mcp_discovered
+        except ImportError:
+            ensure_mcp_discovered = None  # type: ignore[assignment]
 
-        ensure_mcp_discovered()
+        if ensure_mcp_discovered is not None:
+            ensure_mcp_discovered()
 
     child = AIAgent(
         base_url=effective_base_url,
