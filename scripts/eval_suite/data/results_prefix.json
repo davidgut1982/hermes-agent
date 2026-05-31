@@ -1,0 +1,1873 @@
+{
+  "description": "Prefix-correct reranker benchmark (shipped nomic-prefix config). Queries prefixed 'search_query:', docs prefixed 'search_document:'. Source: gen_prefix_benchmark.py. Endpoint: http://192.168.1.36:11434 (nomic-embed-text-v2-moe). All embeddings served from cache — no live calls required.",
+  "tools_count": 194,
+  "queries_count": 98,
+  "embed_model": "nomic-embed-text-v2-moe",
+  "embed_endpoint": "http://192.168.1.36:11434/v1/embeddings",
+  "prefix_config": {
+    "query_prefix": "search_query: ",
+    "doc_prefix": "search_document: ",
+    "note": "Matches shipped reranker (PR #35457). Old bench.py had NO prefix."
+  },
+  "overall_recall5": 0.8095,
+  "per_category": {
+    "AMBIGUOUS": {
+      "recall5": 0.5133,
+      "n": 25
+    },
+    "LEXICAL": {
+      "recall5": 1.0,
+      "n": 30
+    },
+    "SEMANTIC": {
+      "recall5": 0.8488,
+      "n": 43
+    }
+  },
+  "per_query_full": [
+    {
+      "idx": 1,
+      "category": "LEXICAL",
+      "query": "search the web for recent news",
+      "gold": [
+        "mcp_exa_web_search_exa",
+        "mcp_tavily_tavily_search"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_tavily_tavily_search",
+        "mcp_exa_web_search_exa",
+        "session_search",
+        "mcp_fastmail_get_recent_emails",
+        "mcp_exa_web_fetch_exa"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 2,
+      "category": "LEXICAL",
+      "query": "read a file on disk",
+      "gold": [
+        "read_file"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "read_file",
+        "mcp_workspace_get_drive_file_content",
+        "mcp_workspace_get_drive_file_download_url",
+        "mcp_prometheus_read_resource",
+        "mcp_proxmox_read_resource"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 3,
+      "category": "LEXICAL",
+      "query": "write content to a file",
+      "gold": [
+        "write_file"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "write_file",
+        "mcp_workspace_create_drive_file",
+        "read_file",
+        "mcp_workspace_get_script_content",
+        "search_files"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 4,
+      "category": "LEXICAL",
+      "query": "send an email message",
+      "gold": [
+        "mcp_fastmail_send_email",
+        "mcp_workspace_send_gmail_message"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_send_gmail_message",
+        "mcp_fastmail_send_email",
+        "send_message",
+        "mcp_fastmail_send_draft",
+        "mcp_fastmail_reply_email"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 5,
+      "category": "LEXICAL",
+      "query": "search files for a pattern",
+      "gold": [
+        "search_files"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "search_files",
+        "mcp_workspace_search_drive_files",
+        "mcp_knowledge_multi_search",
+        "mcp_workspace_search_custom",
+        "patch"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 6,
+      "category": "LEXICAL",
+      "query": "list calendar events",
+      "gold": [
+        "mcp_workspace_get_events",
+        "mcp_fastmail_list_calendar_events"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_get_events",
+        "mcp_fastmail_list_calendars",
+        "mcp_fastmail_list_calendar_events",
+        "mcp_workspace_list_calendars",
+        "mcp_fastmail_create_calendar_event"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 7,
+      "category": "LEXICAL",
+      "query": "convert text to speech audio",
+      "gold": [
+        "text_to_speech"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "text_to_speech",
+        "mcp_workspace_import_to_google_doc",
+        "mcp_workspace_modify_doc_text",
+        "mcp_workspace_get_drive_file_content",
+        "mcp_workspace_get_messages"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 8,
+      "category": "LEXICAL",
+      "query": "save something to memory for later",
+      "gold": [
+        "memory",
+        "lore_remember"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "memory",
+        "lore_remember",
+        "mcp_proxmox_create_backup",
+        "session_search",
+        "skill_manage"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 9,
+      "category": "LEXICAL",
+      "query": "run a python script",
+      "gold": [
+        "execute_code"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "execute_code",
+        "mcp_workspace_run_script_function",
+        "terminal",
+        "process",
+        "write_file"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 10,
+      "category": "LEXICAL",
+      "query": "manage cron jobs schedule recurring task",
+      "gold": [
+        "cronjob"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "cronjob",
+        "mcp_workspace_manage_task",
+        "mcp_proxmox_retry_job",
+        "mcp_workspace_manage_event",
+        "todo"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 11,
+      "category": "LEXICAL",
+      "query": "create a VM on proxmox",
+      "gold": [
+        "mcp_proxmox_create_vm"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_create_vm",
+        "mcp_proxmox_start_vm",
+        "mcp_proxmox_create_snapshot",
+        "mcp_proxmox_execute_vm_command",
+        "mcp_proxmox_reset_vm"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 12,
+      "category": "LEXICAL",
+      "query": "list containers on a cluster node",
+      "gold": [
+        "mcp_proxmox_get_containers",
+        "mcp_cluster_ops_docker_ps"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_get_containers",
+        "mcp_cluster_ops_docker_ps",
+        "mcp_proxmox_list_snapshots",
+        "mcp_proxmox_get_nodes",
+        "mcp_proxmox_list_templates"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 13,
+      "category": "LEXICAL",
+      "query": "search the knowledge base",
+      "gold": [
+        "mcp_knowledge_kb_search"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_knowledge_kb_search",
+        "mcp_knowledge_kb_add",
+        "mcp_knowledge_multi_search",
+        "mcp_exa_web_search_exa",
+        "session_search"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 14,
+      "category": "LEXICAL",
+      "query": "delegate a task to a subagent",
+      "gold": [
+        "delegate_task"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "delegate_task",
+        "mcp_workspace_manage_task",
+        "cronjob",
+        "send_message",
+        "process"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 15,
+      "category": "LEXICAL",
+      "query": "execute a shell command on a remote host",
+      "gold": [
+        "mcp_cluster_ops_exec_raw"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_cluster_ops_exec_raw",
+        "mcp_proxmox_execute_vm_command",
+        "terminal",
+        "process",
+        "mcp_cluster_ops_service_status"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 16,
+      "category": "LEXICAL",
+      "query": "create a snapshot of a VM",
+      "gold": [
+        "mcp_proxmox_create_snapshot"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_create_snapshot",
+        "mcp_proxmox_list_snapshots",
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_create_vm",
+        "mcp_proxmox_create_backup"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 17,
+      "category": "LEXICAL",
+      "query": "search gmail messages",
+      "gold": [
+        "mcp_workspace_search_gmail_messages"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_search_gmail_messages",
+        "mcp_workspace_get_gmail_messages_content_batch",
+        "mcp_workspace_get_gmail_message_content",
+        "mcp_fastmail_search_emails",
+        "mcp_workspace_search_messages"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 18,
+      "category": "LEXICAL",
+      "query": "list available proxmox nodes",
+      "gold": [
+        "mcp_proxmox_get_nodes"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_get_nodes",
+        "mcp_proxmox_get_node_status",
+        "mcp_proxmox_list_isos",
+        "mcp_proxmox_get_containers",
+        "mcp_proxmox_list_backups"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 19,
+      "category": "LEXICAL",
+      "query": "search contacts by name",
+      "gold": [
+        "mcp_workspace_search_contacts",
+        "mcp_fastmail_search_contacts"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_search_contacts",
+        "mcp_fastmail_search_contacts",
+        "mcp_fastmail_list_contacts",
+        "mcp_fastmail_get_contact",
+        "mcp_workspace_list_contacts"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 20,
+      "category": "LEXICAL",
+      "query": "create a google spreadsheet",
+      "gold": [
+        "mcp_workspace_create_spreadsheet"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_create_spreadsheet",
+        "mcp_workspace_create_presentation",
+        "mcp_workspace_read_sheet_values",
+        "mcp_workspace_create_doc",
+        "mcp_workspace_modify_sheet_values"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 21,
+      "category": "LEXICAL",
+      "query": "query prometheus metrics",
+      "gold": [
+        "mcp_prometheus_query_scalar"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_prometheus_query_scalar",
+        "mcp_prometheus_health",
+        "mcp_prometheus_read_resource",
+        "mcp_prometheus_list_resources",
+        "mcp_prometheus_list_prompts"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 22,
+      "category": "LEXICAL",
+      "query": "delete a VM from proxmox",
+      "gold": [
+        "mcp_proxmox_delete_vm"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_delete_vm",
+        "mcp_proxmox_delete_snapshot",
+        "mcp_proxmox_delete_container",
+        "mcp_proxmox_delete_backup",
+        "mcp_proxmox_stop_vm"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 23,
+      "category": "LEXICAL",
+      "query": "run a terminal command",
+      "gold": [
+        "terminal"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "terminal",
+        "process",
+        "mcp_proxmox_execute_vm_command",
+        "execute_code",
+        "write_file"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 24,
+      "category": "LEXICAL",
+      "query": "create a new google document",
+      "gold": [
+        "mcp_workspace_create_doc"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_create_doc",
+        "mcp_workspace_create_presentation",
+        "mcp_workspace_create_form",
+        "mcp_workspace_create_spreadsheet",
+        "mcp_workspace_create_drive_file"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 25,
+      "category": "LEXICAL",
+      "query": "video analyze a clip from a url",
+      "gold": [
+        "video_analyze"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "video_analyze",
+        "vision_analyze",
+        "mcp_tavily_tavily_extract",
+        "mcp_exa_web_fetch_exa",
+        "mcp_tavily_tavily_crawl"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 26,
+      "category": "LEXICAL",
+      "query": "create a calendar event",
+      "gold": [
+        "mcp_fastmail_create_calendar_event",
+        "mcp_workspace_manage_event"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_create_calendar_event",
+        "mcp_workspace_manage_event",
+        "mcp_workspace_get_events",
+        "mcp_fastmail_delete_calendar_event",
+        "mcp_fastmail_list_calendars"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 27,
+      "category": "LEXICAL",
+      "query": "rollback a proxmox snapshot",
+      "gold": [
+        "mcp_proxmox_rollback_snapshot"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_delete_snapshot",
+        "mcp_proxmox_create_snapshot",
+        "mcp_proxmox_restore_backup",
+        "mcp_proxmox_list_snapshots"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 28,
+      "category": "LEXICAL",
+      "query": "list journal entries from knowledge",
+      "gold": [
+        "mcp_knowledge_journal_list"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_knowledge_journal_list",
+        "mcp_knowledge_journal_get",
+        "mcp_knowledge_journal_append",
+        "mcp_knowledge_kb_list",
+        "mcp_knowledge_kb_add"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 29,
+      "category": "LEXICAL",
+      "query": "read values from a google sheet",
+      "gold": [
+        "mcp_workspace_read_sheet_values"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_read_sheet_values",
+        "mcp_workspace_modify_sheet_values",
+        "mcp_workspace_get_drive_file_content",
+        "mcp_workspace_get_drive_file_download_url",
+        "mcp_workspace_create_spreadsheet"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 30,
+      "category": "LEXICAL",
+      "query": "search session history for past conversations",
+      "gold": [
+        "session_search"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "session_search",
+        "mcp_workspace_search_messages",
+        "mcp_workspace_search_gmail_messages",
+        "mcp_fastmail_get_thread",
+        "memory"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 31,
+      "category": "SEMANTIC",
+      "query": "I need to jot down something so I don't forget it",
+      "gold": [
+        "memory",
+        "lore_remember",
+        "todo"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "memory",
+        "lore_remember",
+        "todo",
+        "session_search",
+        "skill_manage"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 32,
+      "category": "SEMANTIC",
+      "query": "grab the content of a webpage",
+      "gold": [
+        "mcp_exa_web_fetch_exa",
+        "mcp_tavily_tavily_extract"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_exa_web_fetch_exa",
+        "mcp_tavily_tavily_extract",
+        "mcp_workspace_get_script_content",
+        "mcp_tavily_tavily_crawl",
+        "mcp_workspace_get_doc_content"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 33,
+      "category": "SEMANTIC",
+      "query": "spin up a new virtual machine",
+      "gold": [
+        "mcp_proxmox_create_vm",
+        "mcp_proxmox_create_container"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_create_vm",
+        "mcp_proxmox_start_vm",
+        "mcp_proxmox_reset_vm",
+        "mcp_proxmox_shutdown_vm",
+        "mcp_proxmox_clone_vm"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 34,
+      "category": "SEMANTIC",
+      "query": "what services are running on the cluster nodes",
+      "gold": [
+        "mcp_cluster_ops_service_status",
+        "mcp_cluster_ops_docker_ps"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_get_nodes",
+        "mcp_proxmox_get_cluster_status",
+        "mcp_cluster_ops_service_status",
+        "mcp_cluster_ops_cluster_snapshot",
+        "mcp_proxmox_get_vms"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 35,
+      "category": "SEMANTIC",
+      "query": "take a photo of what the current state looks like on the screen",
+      "gold": [
+        "vision_analyze"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "vision_analyze",
+        "mcp_proxmox_get_job",
+        "mcp_proxmox_get_cluster_status",
+        "mcp_proxmox_get_node_status",
+        "mcp_proxmox_get_nodes"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 36,
+      "category": "SEMANTIC",
+      "query": "make a backup copy of my virtual machine before I change things",
+      "gold": [
+        "mcp_proxmox_create_backup",
+        "mcp_proxmox_create_snapshot"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_create_backup",
+        "mcp_proxmox_clone_vm",
+        "mcp_proxmox_restore_backup",
+        "mcp_proxmox_create_snapshot",
+        "mcp_proxmox_create_vm"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 37,
+      "category": "SEMANTIC",
+      "query": "ping a remote host to check if it's reachable",
+      "gold": [
+        "mcp_cluster_ops_exec_raw"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_prometheus_health",
+        "send_message",
+        "mcp_cluster_ops_exec_raw",
+        "mcp_fastmail_check_function_availability",
+        "mcp_cluster_ops_service_status"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 38,
+      "category": "SEMANTIC",
+      "query": "get the logs from a service that crashed",
+      "gold": [
+        "mcp_cluster_ops_journal_tail"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_cluster_ops_service_status",
+        "mcp_cluster_ops_journal_tail",
+        "mcp_cluster_ops_cluster_snapshot",
+        "mcp_proxmox_list_backups",
+        "mcp_cluster_ops_docker_ps"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 39,
+      "category": "SEMANTIC",
+      "query": "look up contact information for someone",
+      "gold": [
+        "mcp_workspace_get_contact",
+        "mcp_fastmail_get_contact",
+        "mcp_workspace_search_contacts"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_get_contact",
+        "mcp_workspace_search_contacts",
+        "mcp_fastmail_search_contacts",
+        "mcp_fastmail_get_contact",
+        "mcp_fastmail_list_contacts"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 40,
+      "category": "SEMANTIC",
+      "query": "I want to automate something so it runs every night at midnight",
+      "gold": [
+        "cronjob"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_generate_trigger_code",
+        "mcp_workspace_manage_event",
+        "cronjob",
+        "process",
+        "mcp_fastmail_list_calendar_events"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 41,
+      "category": "SEMANTIC",
+      "query": "fix a specific section of a text file without rewriting the whole thing",
+      "gold": [
+        "patch"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "write_file",
+        "mcp_workspace_modify_doc_text",
+        "patch",
+        "read_file",
+        "todo"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 42,
+      "category": "SEMANTIC",
+      "query": "have another agent handle this task for me",
+      "gold": [
+        "delegate_task"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "delegate_task",
+        "cronjob",
+        "mcp_workspace_manage_task",
+        "todo",
+        "process"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 43,
+      "category": "SEMANTIC",
+      "query": "check how much disk space is being used",
+      "gold": [
+        "mcp_cluster_ops_disk_usage"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_cluster_ops_disk_usage",
+        "mcp_proxmox_get_storage",
+        "mcp_proxmox_get_vms",
+        "mcp_workspace_search_drive_files",
+        "mcp_proxmox_update_container_resources"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 44,
+      "category": "SEMANTIC",
+      "query": "research a topic thoroughly from multiple sources",
+      "gold": [
+        "mcp_tavily_tavily_research",
+        "mcp_exa_web_search_exa"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_tavily_tavily_research",
+        "mcp_knowledge_multi_search",
+        "mcp_tavily_tavily_search",
+        "mcp_exa_web_search_exa",
+        "session_search"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 45,
+      "category": "SEMANTIC",
+      "query": "add an item to my task list for today",
+      "gold": [
+        "todo"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "todo",
+        "mcp_workspace_manage_task",
+        "mcp_workspace_list_tasks",
+        "mcp_workspace_get_task",
+        "cronjob"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 46,
+      "category": "SEMANTIC",
+      "query": "I want to hear what I just typed aloud",
+      "gold": [
+        "text_to_speech"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "session_search",
+        "text_to_speech",
+        "vision_analyze",
+        "mcp_cluster_ops_journal_tail",
+        "mcp_tavily_read_resource"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 47,
+      "category": "SEMANTIC",
+      "query": "bring a halted container back online",
+      "gold": [
+        "mcp_proxmox_start_container"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_cluster_ops_docker_ps",
+        "mcp_cluster_ops_exec_raw",
+        "mcp_proxmox_stop_container",
+        "mcp_proxmox_get_containers"
+      ],
+      "rerank_recall5": 0.0,
+      "rerank_mrr": 0.0
+    },
+    {
+      "idx": 48,
+      "category": "SEMANTIC",
+      "query": "pull the website's entire link map",
+      "gold": [
+        "mcp_tavily_tavily_map"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_tavily_tavily_map",
+        "mcp_exa_web_fetch_exa",
+        "mcp_tavily_tavily_crawl",
+        "mcp_tavily_tavily_extract",
+        "vision_analyze"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 49,
+      "category": "SEMANTIC",
+      "query": "cut power to a running VM immediately",
+      "gold": [
+        "mcp_proxmox_stop_vm"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_shutdown_vm",
+        "mcp_proxmox_delete_vm",
+        "mcp_proxmox_stop_vm",
+        "mcp_proxmox_start_vm",
+        "mcp_proxmox_create_vm"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 50,
+      "category": "SEMANTIC",
+      "query": "revert my infrastructure to a known-good point in time",
+      "gold": [
+        "mcp_proxmox_rollback_snapshot"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_reset_vm",
+        "mcp_proxmox_restore_backup",
+        "mcp_proxmox_clone_vm",
+        "mcp_fastmail_update_calendar_event"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 51,
+      "category": "SEMANTIC",
+      "query": "duplicate an existing virtual machine",
+      "gold": [
+        "mcp_proxmox_clone_vm"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_clone_vm",
+        "mcp_proxmox_create_vm",
+        "mcp_proxmox_delete_vm",
+        "mcp_proxmox_start_vm",
+        "mcp_proxmox_reset_vm"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 52,
+      "category": "SEMANTIC",
+      "query": "measure how much RAM and CPU a node is consuming",
+      "gold": [
+        "mcp_proxmox_get_node_status"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_get_nodes",
+        "mcp_proxmox_get_node_status",
+        "mcp_proxmox_get_containers",
+        "mcp_proxmox_get_vms",
+        "mcp_proxmox_shutdown_vm"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 53,
+      "category": "SEMANTIC",
+      "query": "index new information so it can be found later",
+      "gold": [
+        "mcp_knowledge_kb_add"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_tavily_tavily_search",
+        "mcp_workspace_create_doc",
+        "mcp_exa_web_search_exa",
+        "mcp_knowledge_kb_update",
+        "session_search"
+      ],
+      "rerank_recall5": 0.0,
+      "rerank_mrr": 0.0
+    },
+    {
+      "idx": 54,
+      "category": "SEMANTIC",
+      "query": "open a browser on the remote machine and take a screenshot",
+      "gold": [
+        "mcp_cluster_ops_exec_raw"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "vision_analyze",
+        "mcp_proxmox_create_snapshot",
+        "process",
+        "mcp_proxmox_delete_snapshot",
+        "mcp_proxmox_shutdown_vm"
+      ],
+      "rerank_recall5": 0.0,
+      "rerank_mrr": 0.0
+    },
+    {
+      "idx": 55,
+      "category": "SEMANTIC",
+      "query": "ask the user what they actually meant",
+      "gold": [
+        "clarify"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "clarify",
+        "vision_analyze",
+        "memory",
+        "mcp_exa_web_search_exa",
+        "session_search"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 56,
+      "category": "SEMANTIC",
+      "query": "compose a reply to an incoming message without sending it yet",
+      "gold": [
+        "mcp_fastmail_create_draft"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_reply_email",
+        "mcp_workspace_send_message",
+        "mcp_fastmail_create_draft",
+        "mcp_workspace_create_reaction",
+        "send_message"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 57,
+      "category": "SEMANTIC",
+      "query": "fetch a previously stored note from the knowledge base",
+      "gold": [
+        "mcp_knowledge_kb_get",
+        "mcp_knowledge_kb_search"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "lore_remember",
+        "session_search",
+        "mcp_knowledge_kb_add",
+        "mcp_knowledge_kb_delete",
+        "mcp_knowledge_kb_get"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 0.2
+    },
+    {
+      "idx": 58,
+      "category": "SEMANTIC",
+      "query": "watch what a long-running background process is doing",
+      "gold": [
+        "process"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "process",
+        "mcp_proxmox_retry_job",
+        "mcp_proxmox_poll_job",
+        "mcp_proxmox_cancel_job",
+        "terminal"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 59,
+      "category": "SEMANTIC",
+      "query": "mirror an ISO image onto cluster storage",
+      "gold": [
+        "mcp_proxmox_download_iso"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_list_isos",
+        "mcp_proxmox_download_iso",
+        "mcp_proxmox_delete_iso",
+        "mcp_cluster_ops_read_resource",
+        "mcp_cluster_ops_disk_usage"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 60,
+      "category": "SEMANTIC",
+      "query": "tally the number of unread inbox items",
+      "gold": [
+        "mcp_fastmail_get_mailbox_stats"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_get_mailbox_stats",
+        "mcp_fastmail_mark_email_read",
+        "mcp_fastmail_bulk_mark_read",
+        "mcp_workspace_get_gmail_messages_content_batch",
+        "mcp_fastmail_bulk_delete"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 61,
+      "category": "SEMANTIC",
+      "query": "put together a slide deck for a presentation",
+      "gold": [
+        "mcp_workspace_create_presentation"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_create_presentation",
+        "mcp_workspace_get_presentation",
+        "mcp_proxmox_list_snapshots",
+        "todo",
+        "mcp_proxmox_create_snapshot"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 62,
+      "category": "SEMANTIC",
+      "query": "remove several messages at once from my inbox",
+      "gold": [
+        "mcp_fastmail_bulk_delete"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_bulk_delete",
+        "mcp_fastmail_bulk_remove_labels",
+        "mcp_fastmail_remove_labels",
+        "mcp_workspace_get_gmail_messages_content_batch",
+        "mcp_fastmail_import_rules"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 63,
+      "category": "SEMANTIC",
+      "query": "restore a machine from an earlier point",
+      "gold": [
+        "mcp_proxmox_restore_backup"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_restore_backup",
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_reset_vm",
+        "mcp_proxmox_clone_vm",
+        "mcp_proxmox_retry_job"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 64,
+      "category": "SEMANTIC",
+      "query": "interrogate a time-series database for a gauge value",
+      "gold": [
+        "mcp_prometheus_query_scalar"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_prometheus_query_scalar",
+        "mcp_workspace_get_events",
+        "session_search",
+        "mcp_workspace_read_sheet_values",
+        "mcp_proxmox_get_job"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 65,
+      "category": "SEMANTIC",
+      "query": "run a piece of code that orchestrates multiple tool calls in sequence",
+      "gold": [
+        "execute_code"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "execute_code",
+        "delegate_task",
+        "todo",
+        "cronjob",
+        "terminal"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 66,
+      "category": "SEMANTIC",
+      "query": "confirm that a host in the cluster is alive and responding",
+      "gold": [
+        "mcp_prometheus_health",
+        "mcp_cluster_ops_exec_raw"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_cluster_ops_service_status",
+        "mcp_cluster_ops_docker_ps",
+        "mcp_cluster_ops_cluster_snapshot",
+        "mcp_proxmox_get_cluster_status",
+        "mcp_cluster_ops_exec_raw"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 0.2
+    },
+    {
+      "idx": 67,
+      "category": "SEMANTIC",
+      "query": "find articles or pages about a specific subject on the internet",
+      "gold": [
+        "mcp_exa_web_search_exa",
+        "mcp_tavily_tavily_search"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_tavily_tavily_search",
+        "mcp_exa_web_search_exa",
+        "mcp_tavily_tavily_research",
+        "mcp_tavily_tavily_crawl",
+        "mcp_tavily_tavily_extract"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 68,
+      "category": "SEMANTIC",
+      "query": "retrieve all messages in an email thread",
+      "gold": [
+        "mcp_fastmail_get_thread"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_get_thread",
+        "mcp_workspace_get_gmail_messages_content_batch",
+        "mcp_workspace_get_gmail_message_content",
+        "mcp_workspace_search_gmail_messages",
+        "mcp_fastmail_get_recent_emails"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 69,
+      "category": "SEMANTIC",
+      "query": "reorganize a VM's RAM and CPU allocation",
+      "gold": [
+        "mcp_proxmox_update_container_resources"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_create_vm",
+        "mcp_proxmox_clone_vm",
+        "mcp_proxmox_restore_backup",
+        "mcp_proxmox_get_vms",
+        "mcp_proxmox_create_snapshot"
+      ],
+      "rerank_recall5": 0.0,
+      "rerank_mrr": 0.0
+    },
+    {
+      "idx": 70,
+      "category": "SEMANTIC",
+      "query": "get a full map of every URL on a site",
+      "gold": [
+        "mcp_tavily_tavily_crawl",
+        "mcp_tavily_tavily_map"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_tavily_tavily_map",
+        "mcp_exa_web_fetch_exa",
+        "mcp_tavily_tavily_extract",
+        "mcp_tavily_tavily_crawl",
+        "mcp_workspace_get_script_project"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 71,
+      "category": "SEMANTIC",
+      "query": "pull the most recent entries from my journal",
+      "gold": [
+        "mcp_knowledge_journal_list",
+        "mcp_knowledge_journal_get"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_cluster_ops_journal_tail",
+        "mcp_fastmail_get_recent_emails",
+        "mcp_knowledge_journal_get",
+        "mcp_knowledge_journal_list",
+        "mcp_knowledge_journal_append"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 72,
+      "category": "SEMANTIC",
+      "query": "make my virtual infrastructure reflect an earlier safe configuration",
+      "gold": [
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_restore_backup"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_create_vm",
+        "mcp_proxmox_shutdown_vm",
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_clone_vm",
+        "mcp_proxmox_start_vm"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 0.3333
+    },
+    {
+      "idx": 73,
+      "category": "SEMANTIC",
+      "query": "capture the current overall health of the cluster",
+      "gold": [
+        "mcp_cluster_ops_cluster_snapshot",
+        "mcp_proxmox_get_cluster_status"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_get_cluster_status",
+        "mcp_cluster_ops_cluster_snapshot",
+        "mcp_proxmox_get_vms",
+        "mcp_proxmox_get_containers",
+        "mcp_proxmox_get_nodes"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 74,
+      "category": "AMBIGUOUS",
+      "query": "find information about a person named John Smith",
+      "gold": [
+        "mcp_workspace_search_contacts",
+        "mcp_fastmail_search_contacts",
+        "mcp_exa_web_search_exa",
+        "mcp_tavily_tavily_search"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_get_contact",
+        "session_search",
+        "mcp_workspace_get_form",
+        "mcp_fastmail_list_identities",
+        "mcp_workspace_search_custom"
+      ],
+      "rerank_recall5": 0.0,
+      "rerank_mrr": 0.0
+    },
+    {
+      "idx": 75,
+      "category": "AMBIGUOUS",
+      "query": "create a new document",
+      "gold": [
+        "mcp_workspace_create_doc",
+        "write_file",
+        "mcp_workspace_create_spreadsheet",
+        "mcp_workspace_create_presentation"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_create_doc",
+        "mcp_workspace_create_form",
+        "mcp_workspace_create_presentation",
+        "mcp_workspace_create_spreadsheet",
+        "mcp_workspace_create_script_project"
+      ],
+      "rerank_recall5": 0.75,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 76,
+      "category": "AMBIGUOUS",
+      "query": "check if a service is healthy",
+      "gold": [
+        "mcp_cluster_ops_service_status",
+        "mcp_prometheus_health",
+        "mcp_cluster_ops_docker_ps"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_test_bulk_operations",
+        "mcp_prometheus_health",
+        "mcp_cluster_ops_service_status",
+        "mcp_fastmail_check_function_availability",
+        "mcp_cluster_ops_cluster_snapshot"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 77,
+      "category": "AMBIGUOUS",
+      "query": "look at what happened recently",
+      "gold": [
+        "session_search",
+        "mcp_cluster_ops_journal_tail",
+        "mcp_fastmail_get_recent_emails"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "session_search",
+        "mcp_tavily_tavily_search",
+        "mcp_exa_web_search_exa",
+        "mcp_fastmail_test_bulk_operations",
+        "mcp_cluster_ops_cluster_snapshot"
+      ],
+      "rerank_recall5": 0.3333,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 78,
+      "category": "AMBIGUOUS",
+      "query": "get a snapshot of the current system state",
+      "gold": [
+        "mcp_cluster_ops_cluster_snapshot",
+        "mcp_proxmox_create_snapshot",
+        "mcp_proxmox_get_cluster_status"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_create_snapshot",
+        "mcp_cluster_ops_cluster_snapshot",
+        "mcp_proxmox_get_job",
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_list_snapshots"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 79,
+      "category": "AMBIGUOUS",
+      "query": "send a notification to a channel",
+      "gold": [
+        "send_message",
+        "mcp_workspace_send_message",
+        "mcp_fastmail_send_email"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "send_message",
+        "mcp_workspace_send_message",
+        "mcp_workspace_send_gmail_message",
+        "mcp_fastmail_send_draft",
+        "mcp_workspace_create_reaction"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 80,
+      "category": "AMBIGUOUS",
+      "query": "start a background job",
+      "gold": [
+        "terminal",
+        "cronjob",
+        "execute_code",
+        "delegate_task"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "process",
+        "cronjob",
+        "mcp_proxmox_poll_job",
+        "mcp_proxmox_list_jobs",
+        "mcp_proxmox_get_job"
+      ],
+      "rerank_recall5": 0.25,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 81,
+      "category": "AMBIGUOUS",
+      "query": "search through past conversations",
+      "gold": [
+        "session_search",
+        "mcp_knowledge_kb_search"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "session_search",
+        "mcp_fastmail_get_thread",
+        "mcp_knowledge_multi_search",
+        "mcp_workspace_search_messages",
+        "mcp_workspace_search_gmail_messages"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 82,
+      "category": "AMBIGUOUS",
+      "query": "monitor metrics and resource usage",
+      "gold": [
+        "mcp_prometheus_query_scalar",
+        "mcp_cluster_ops_disk_usage",
+        "mcp_cluster_ops_service_status",
+        "mcp_proxmox_get_node_status"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_cluster_ops_disk_usage",
+        "mcp_proxmox_get_vms",
+        "mcp_tavily_tavily_research",
+        "mcp_workspace_read_resource",
+        "memory"
+      ],
+      "rerank_recall5": 0.25,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 83,
+      "category": "AMBIGUOUS",
+      "query": "upload or store a file somewhere",
+      "gold": [
+        "write_file",
+        "mcp_workspace_create_drive_file",
+        "mcp_workspace_create_drive_folder"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_create_drive_file",
+        "mcp_workspace_get_drive_file_download_url",
+        "mcp_proxmox_download_iso",
+        "mcp_proxmox_create_backup",
+        "mcp_workspace_create_drive_folder"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 84,
+      "category": "AMBIGUOUS",
+      "query": "keep track of something I need to do",
+      "gold": [
+        "todo",
+        "memory",
+        "lore_remember",
+        "mcp_workspace_manage_task"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "todo",
+        "mcp_workspace_manage_task",
+        "memory",
+        "skill_manage",
+        "mcp_workspace_manage_event"
+      ],
+      "rerank_recall5": 0.75,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 85,
+      "category": "AMBIGUOUS",
+      "query": "set up an appointment",
+      "gold": [
+        "mcp_fastmail_create_calendar_event",
+        "mcp_workspace_manage_event"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "cronjob",
+        "mcp_workspace_manage_event",
+        "mcp_fastmail_create_calendar_event",
+        "mcp_workspace_create_presentation",
+        "mcp_workspace_manage_contact"
+      ],
+      "rerank_recall5": 1.0,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 86,
+      "category": "AMBIGUOUS",
+      "query": "view the current state of my VMs",
+      "gold": [
+        "mcp_proxmox_get_vms",
+        "mcp_proxmox_get_containers",
+        "mcp_proxmox_get_cluster_status"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_get_vms",
+        "mcp_proxmox_get_containers",
+        "mcp_proxmox_get_nodes",
+        "mcp_proxmox_list_snapshots",
+        "mcp_proxmox_get_node_status"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 87,
+      "category": "AMBIGUOUS",
+      "query": "tell me what's in my inbox",
+      "gold": [
+        "mcp_fastmail_get_recent_emails",
+        "mcp_fastmail_list_emails",
+        "mcp_workspace_search_gmail_messages"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_list_mailboxes",
+        "mcp_workspace_get_gmail_message_content",
+        "mcp_workspace_send_gmail_message",
+        "mcp_fastmail_import_rules",
+        "mcp_workspace_get_gmail_messages_content_batch"
+      ],
+      "rerank_recall5": 0.0,
+      "rerank_mrr": 0.0
+    },
+    {
+      "idx": 88,
+      "category": "AMBIGUOUS",
+      "query": "share a file with someone",
+      "gold": [
+        "mcp_workspace_get_drive_shareable_link",
+        "mcp_fastmail_send_email",
+        "mcp_workspace_send_gmail_message"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_get_drive_shareable_link",
+        "mcp_workspace_create_drive_file",
+        "mcp_workspace_create_drive_folder",
+        "mcp_workspace_get_drive_file_content",
+        "mcp_workspace_get_drive_file_download_url"
+      ],
+      "rerank_recall5": 0.3333,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 89,
+      "category": "AMBIGUOUS",
+      "query": "stop what's running",
+      "gold": [
+        "mcp_proxmox_stop_vm",
+        "mcp_proxmox_stop_container",
+        "terminal",
+        "process"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_stop_vm",
+        "mcp_proxmox_stop_container",
+        "process",
+        "mcp_proxmox_cancel_job",
+        "cronjob"
+      ],
+      "rerank_recall5": 0.75,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 90,
+      "category": "AMBIGUOUS",
+      "query": "organize my email",
+      "gold": [
+        "mcp_fastmail_move_email",
+        "mcp_fastmail_add_labels",
+        "mcp_fastmail_bulk_move",
+        "mcp_fastmail_create_mailbox"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_manage_event",
+        "mcp_workspace_send_gmail_message",
+        "mcp_workspace_list_contacts",
+        "mcp_fastmail_create_draft",
+        "mcp_fastmail_create_mailbox"
+      ],
+      "rerank_recall5": 0.25,
+      "rerank_mrr": 0.2
+    },
+    {
+      "idx": 91,
+      "category": "AMBIGUOUS",
+      "query": "get the IP address of a machine",
+      "gold": [
+        "mcp_proxmox_get_container_ip",
+        "mcp_cluster_ops_exec_raw"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_get_container_ip",
+        "mcp_proxmox_get_vms",
+        "mcp_proxmox_start_vm",
+        "mcp_workspace_get_task",
+        "mcp_proxmox_get_node_status"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 92,
+      "category": "AMBIGUOUS",
+      "query": "check recent activity in the system",
+      "gold": [
+        "mcp_cluster_ops_journal_tail",
+        "session_search",
+        "mcp_proxmox_list_jobs"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "session_search",
+        "mcp_fastmail_test_bulk_operations",
+        "mcp_cluster_ops_journal_tail",
+        "process",
+        "mcp_fastmail_get_recent_emails"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 93,
+      "category": "AMBIGUOUS",
+      "query": "figure out why something isn't working",
+      "gold": [
+        "mcp_cluster_ops_journal_tail",
+        "mcp_cluster_ops_service_status",
+        "mcp_cluster_ops_exec_raw",
+        "mcp_prometheus_query_scalar"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_fastmail_test_bulk_operations",
+        "process",
+        "mcp_prometheus_health",
+        "mcp_workspace_run_script_function",
+        "mcp_prometheus_query_scalar"
+      ],
+      "rerank_recall5": 0.25,
+      "rerank_mrr": 0.2
+    },
+    {
+      "idx": 94,
+      "category": "AMBIGUOUS",
+      "query": "find a file I saved earlier",
+      "gold": [
+        "search_files",
+        "mcp_workspace_search_drive_files",
+        "read_file"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "session_search",
+        "search_files",
+        "patch",
+        "memory",
+        "mcp_workspace_search_drive_files"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 0.5
+    },
+    {
+      "idx": 95,
+      "category": "AMBIGUOUS",
+      "query": "add a note about what I just learned",
+      "gold": [
+        "memory",
+        "lore_remember",
+        "mcp_knowledge_kb_add",
+        "mcp_knowledge_journal_append"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_knowledge_kb_add",
+        "skill_manage",
+        "mcp_knowledge_journal_append",
+        "mcp_workspace_create_reaction",
+        "memory"
+      ],
+      "rerank_recall5": 0.75,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 96,
+      "category": "AMBIGUOUS",
+      "query": "look up something online",
+      "gold": [
+        "mcp_exa_web_search_exa",
+        "mcp_tavily_tavily_search",
+        "mcp_exa_web_fetch_exa",
+        "mcp_tavily_tavily_extract"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_tavily_tavily_search",
+        "mcp_exa_web_search_exa",
+        "mcp_prometheus_health",
+        "mcp_knowledge_multi_search",
+        "mcp_workspace_search_custom"
+      ],
+      "rerank_recall5": 0.5,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 97,
+      "category": "AMBIGUOUS",
+      "query": "reboot a machine",
+      "gold": [
+        "mcp_proxmox_reset_vm",
+        "mcp_proxmox_restart_container",
+        "mcp_cluster_ops_exec_raw"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_proxmox_reset_vm",
+        "mcp_proxmox_restart_container",
+        "mcp_proxmox_rollback_snapshot",
+        "mcp_proxmox_restore_backup",
+        "mcp_proxmox_delete_vm"
+      ],
+      "rerank_recall5": 0.6667,
+      "rerank_mrr": 1.0
+    },
+    {
+      "idx": 98,
+      "category": "AMBIGUOUS",
+      "query": "get details about a specific task or job",
+      "gold": [
+        "mcp_proxmox_get_job",
+        "mcp_workspace_get_task",
+        "mcp_proxmox_poll_job"
+      ],
+      "bm25_top5": [],
+      "rerank_top5": [
+        "mcp_workspace_get_task",
+        "mcp_workspace_get_contact",
+        "skill_view",
+        "mcp_workspace_list_tasks",
+        "mcp_workspace_get_presentation"
+      ],
+      "rerank_recall5": 0.3333,
+      "rerank_mrr": 1.0
+    }
+  ]
+}

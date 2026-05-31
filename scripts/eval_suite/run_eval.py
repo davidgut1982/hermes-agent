@@ -168,7 +168,7 @@ def main() -> int:
     # --- Reranker benchmark ---
     print(  # noqa: E501
         "\n[1/4] Scoring reranker benchmark "
-        "(98 queries, /tmp/tool-rerank-poc/results.json) ..."
+        "(98 queries, scripts/eval_suite/data/results_prefix.json — prefix-correct) ..."
     )
     try:
         rr_rows = score_reranker_benchmark()

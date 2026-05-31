@@ -5,9 +5,17 @@ the >= 0.85 tool-selection accuracy bar (kb_28650bfe5f17). Uses DeepEval
 ToolCorrectnessMetric (Apache-2.0, local-only, no SaaS) against the
 offline reranker benchmark data and livetest outputs.
 
-What: Reads labeled_scenarios.jsonl + results.json + livetest _summary.json,
-constructs LLMTestCase objects with expected_tools and tools_called, and
-asserts the aggregate ToolCorrectnessMetric score >= threshold.
+What: Reads labeled_scenarios.jsonl + data/results_prefix.json + livetest
+_summary.json, constructs LLMTestCase objects with expected_tools and
+tools_called, and checks the aggregate ToolCorrectnessMetric score.
+
+Test gate structure:
+  - test_reranker_tool_correctness_regression_guard: asserts >= 0.70 as a
+    regression gate. Passes currently. Named clearly to distinguish from
+    the success bar.
+  - test_reranker_tool_correctness_success_bar: asserts >= 0.85 (the real
+    KB success bar). Marked xfail(strict=False) until the reranker is tuned
+    to meet the bar. NEVER remove this test — it is the gated success bar.
 
 IMPORTANT: Run with the eval venv:
     /home/david/venv-eval/bin/pytest scripts/eval_suite/test_tool_accuracy.py -v
@@ -183,25 +191,26 @@ def _score_case(
 
 
 @_deepeval_skip()
-def test_reranker_tool_correctness_aggregate() -> None:
-    """Assert aggregate ToolCorrectnessMetric >= 0.85 over the 98-query benchmark.
+def test_reranker_tool_correctness_regression_guard() -> None:
+    """Assert aggregate ToolCorrectnessMetric >= 0.70 (regression guard only).
 
-    Why: The KB success bar for tool-selection is >= 0.85 (kb_28650bfe5f17).
-    What: Scores all 98 reranker queries and asserts the mean >= threshold.
-    Test: THIS IS THE TEST. Pass = overall correctness meets the bar.
+    Why: Regression guard — catches catastrophic drops from the current baseline.
+    The REAL success bar (0.85) is enforced by test_reranker_tool_correctness_success_bar.
+    This test MUST NOT be used as a proxy for meeting the success bar.
+    What: Scores all 98 reranker queries (prefix-correct benchmark) and asserts
+    the mean ToolCorrectnessMetric >= 0.70 (current baseline - safety margin).
+    Test: THIS IS THE REGRESSION GATE. Fail = catastrophic regression. See also
+    test_reranker_tool_correctness_success_bar for the success bar gate.
     """
     cases = _build_reranker_test_cases()
     if not cases:
-        pytest.skip(  # noqa: E501
-            "reranker results.json not found at /tmp/tool-rerank-poc/results.json"
+        pytest.skip(
+            "Reranker results not found at scripts/eval_suite/data/results_prefix.json. "
+            "Run scripts/eval_suite/gen_prefix_benchmark.py to regenerate."
         )
 
-    threshold = 0.85
-    # Regression guard: current baseline is 0.757 (FULL retrieve, 194 tools).
-    # The target bar is 0.85 (kb_28650bfe5f17). We assert >= baseline so the
-    # test acts as a regression gate on current performance.
-    # When the reranker is improved to meet the 0.85 bar, raise this to 0.85.
-    regression_guard = 0.70  # Must not drop below current baseline - margin
+    threshold = 0.85  # used for per-case pass count display
+    regression_guard = 0.70  # must not drop below current baseline - margin
 
     scores = []
     for query, expected, predicted in cases:
@@ -212,23 +221,69 @@ def test_reranker_tool_correctness_aggregate() -> None:
     n = len(scores)
     pass_count = sum(1 for s in scores if s >= threshold)
 
-    print(f"\n  Reranker ToolCorrectnessMetric: mean={mean_score:.3f} "
-          f"pass={pass_count}/{n} threshold={threshold} "
-          f"(target bar={threshold}, current baseline=0.757)")
+    print(f"\n  [regression_guard] Reranker ToolCorrectnessMetric: mean={mean_score:.3f} "
+          f"pass@0.85={pass_count}/{n} guard={regression_guard}")
+    print(f"  NOTE: This is the REGRESSION GUARD only. "
+          f"Success bar (0.85) is in test_reranker_tool_correctness_success_bar.")
 
     assert mean_score >= regression_guard, (
-        f"Reranker tool-selection REGRESSION: "
+        f"Reranker tool-selection REGRESSION DETECTED: "
         f"{mean_score:.3f} < guard {regression_guard}. "
-        f"Baseline was 0.757. Pass rate: {pass_count}/{n} scenarios. "
-        f"NOTE: Target bar is 0.85 — not yet met at baseline."
+        f"Prefix-correct baseline is ~0.810. Pass rate: {pass_count}/{n}. "
+        f"NOTE: Target success bar is 0.85 (see test_reranker_tool_correctness_success_bar)."
     )
-    # Informational: warn if not yet at target bar
-    if mean_score < threshold:
-        print(
-            f"  INFO: Not yet at target bar {threshold} "
-            f"(currently {mean_score:.3f}). "
-            "Semantic R@5=0.767 < 0.84 bar. Reranker improvement needed."
+
+
+@_deepeval_skip()
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Reranker not yet at 0.85 success bar (kb_28650bfe5f17). "
+        "Current prefix-correct baseline: overall R@5=0.810, semantic R@5=0.849. "
+        "AMBIGUOUS category drags mean ToolCorrectnessMetric below 0.85. "
+        "Remove xfail when reranker improvements bring mean >= 0.85."
+    ),
+)
+def test_reranker_tool_correctness_success_bar() -> None:
+    """Assert aggregate ToolCorrectnessMetric >= 0.85 (the real KB success bar).
+
+    Why: The KB success bar for tool-selection is >= 0.85 (kb_28650bfe5f17).
+    This test is xfail(strict=False) until the reranker meets the bar — it will
+    show as XPASS when the bar is met, at which point remove the xfail decorator.
+    What: Scores all 98 reranker queries and asserts the mean >= 0.85.
+    Test: THIS IS THE SUCCESS BAR GATE. xfail = bar not yet met (expected).
+    XPASS = bar met (great — remove xfail). FAIL = regression below 0.85 after
+    previously meeting it (strict=False means xpass is not an error, but hard
+    failure is still reported).
+    """
+    cases = _build_reranker_test_cases()
+    if not cases:
+        pytest.skip(
+            "Reranker results not found at scripts/eval_suite/data/results_prefix.json. "
+            "Run scripts/eval_suite/gen_prefix_benchmark.py to regenerate."
         )
+
+    threshold = 0.85  # The real success bar from kb_28650bfe5f17
+
+    scores = []
+    for query, expected, predicted in cases:
+        s = _score_case(query, expected, predicted, threshold=threshold)
+        scores.append(s)
+
+    mean_score = sum(scores) / len(scores) if scores else 0.0
+    n = len(scores)
+    pass_count = sum(1 for s in scores if s >= threshold)
+
+    print(f"\n  [success_bar] Reranker ToolCorrectnessMetric: mean={mean_score:.3f} "
+          f"pass={pass_count}/{n} bar={threshold}")
+
+    assert mean_score >= threshold, (
+        f"Reranker tool-selection not yet at success bar: "
+        f"{mean_score:.3f} < {threshold}. "
+        f"Prefix-correct R@5=0.810. Improve AMBIGUOUS category or reranker tuning. "
+        f"Pass rate: {pass_count}/{n} queries. "
+        f"This is xfail — expected until reranker is tuned."
+    )
 
 
 @_deepeval_skip()
@@ -352,3 +407,15 @@ def test_labeled_scenarios_count() -> None:
             f"Scenario {sc.get('id')} missing 'expected_tools'"
         )
         assert "k" in sc, f"Scenario {sc.get('id')} missing 'k'"
+
+    # Check that benchmark scenarios (non-livetest, non-delegation) have benchmark_idx
+    no_idx_benchmark = [
+        sc["id"] for sc in scenarios
+        if sc.get("category") not in ("livetest", "delegation_profile",
+                                       "should_not_delegate")
+        and "benchmark_idx" not in sc
+    ]
+    assert not no_idx_benchmark, (
+        f"Benchmark scenarios missing benchmark_idx (fragile text-match will be used): "
+        f"{no_idx_benchmark}. Add benchmark_idx to labeled_scenarios.jsonl."
+    )
