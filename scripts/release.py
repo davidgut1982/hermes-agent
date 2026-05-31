@@ -1407,6 +1407,11 @@ AUTHOR_MAP = {
     "sunil.nitie@gmail.com": "Sunil123135",  # PR #31031 (Windows Docker Desktop compose)
     "weichangyuwcy@gmail.com": "ChyuWei",  # PR #30987 (TUI TTS env var on voice off)
     "david.gutowsky@gmail.com": "davidgut1982",  # PR #1 (offline eval suite)
+    # check-attribution fixes (PR #1 — offline eval suite)
+    "batosk2@gmail.com": "Sarbai",  # PR #33438 (approval: docker restart/stop/kill DANGEROUS_PATTERNS)
+    "ilonagaja509-glitch@users.noreply.github.com": "ilonagaja509-glitch",  # bare noreply (no numeric prefix)
+    "redpiggy-cyber@users.noreply.github.com": "redpiggy-cyber",  # bare noreply (no numeric prefix)
+    "sohyuanchin@gmail.com": "wysie",  # same author as wysie@users.noreply.github.com
 }
 
 
