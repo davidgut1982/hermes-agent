@@ -54,9 +54,13 @@ from scorers import (  # noqa: E402
     recall_at_k,
 )
 
+ToolCall: type | None = None  # module-level init for Pyright possibly-unbound
+LLMTestCase: type | None = None
+ToolCorrectnessMetric: type | None = None
+
 try:
-    from deepeval.metrics import ToolCorrectnessMetric
-    from deepeval.test_case import LLMTestCase, ToolCall
+    from deepeval.metrics import ToolCorrectnessMetric  # type: ignore[assignment]
+    from deepeval.test_case import LLMTestCase, ToolCall  # type: ignore[assignment]
 
     DEEPEVAL_AVAILABLE = True
 except ImportError:
@@ -223,8 +227,8 @@ def test_reranker_tool_correctness_regression_guard() -> None:
 
     print(f"\n  [regression_guard] Reranker ToolCorrectnessMetric: mean={mean_score:.3f} "
           f"pass@0.85={pass_count}/{n} guard={regression_guard}")
-    print(f"  NOTE: This is the REGRESSION GUARD only. "
-          f"Success bar (0.85) is in test_reranker_tool_correctness_success_bar.")
+    print("  NOTE: This is the REGRESSION GUARD only. "
+          "Success bar (0.85) is in test_reranker_tool_correctness_success_bar.")
 
     assert mean_score >= regression_guard, (
         f"Reranker tool-selection REGRESSION DETECTED: "

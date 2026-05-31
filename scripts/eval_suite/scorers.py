@@ -481,13 +481,11 @@ def score_labeled_scenarios() -> list[ScorecardRow]:
         benchmark_idx: int | None = sc.get("benchmark_idx")
 
         predicted: list[str] = []
-        source_used = ""
 
         # 1. Try benchmark cross-reference by stable ID
         if benchmark_idx is not None and benchmark_idx in rr_by_idx:
             rr = rr_by_idx[benchmark_idx]
             predicted = rr.rerank_top5
-            source_used = f"benchmark_idx={benchmark_idx}"
             covered += 1
 
         # 2. Try livetest data (S001-S005)
@@ -496,7 +494,6 @@ def score_labeled_scenarios() -> list[ScorecardRow]:
             if lt_key in lt_by_scenario:
                 row = lt_by_scenario[lt_key]
                 predicted = row.get("underlying_tools_called", [])
-                source_used = f"livetest:{lt_key}"
                 covered += 1
             else:
                 unscored.append({

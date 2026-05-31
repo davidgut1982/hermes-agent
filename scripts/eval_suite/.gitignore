@@ -1,6 +1,8 @@
-# Ignore generated run output but track the canonical baseline
+# Ignore generated run output but track canonical baseline, latest baseline, and history
 out/*.jsonl
 !out/scores_baseline.jsonl
+!out/scores_baseline_v3.jsonl
+!out/scores_history.jsonl
 __pycache__/
 *.pyc
 *.pyo
