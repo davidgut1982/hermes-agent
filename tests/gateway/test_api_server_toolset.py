@@ -99,6 +99,39 @@ class TestApiServerAdapterToolset:
             assert call_kwargs.kwargs.get("platform") == "api_server"
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_create_agent_skips_memory_on_parent(self):
+        """Parent orchestrator must be built with skip_memory=True.
+
+        Why: SOUL.md delegates ALL recall to the `memory` child profile, so the
+        blocking Lore prefetch_all() at the top of run_conversation (~4.3s/request)
+        is latency the parent never uses for routing. skip_memory=True is the gate
+        that leaves _memory_manager=None and skips that prefetch.
+        What: asserts _create_agent passes skip_memory=True into AIAgent.
+        Test: this test — mock AIAgent, call _create_agent, assert the kwarg.
+        """
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+
+        adapter = APIServerAdapter(PlatformConfig())
+
+        with patch("gateway.run._resolve_runtime_agent_kwargs") as mock_kwargs, \
+             patch("gateway.run._resolve_gateway_model") as mock_model, \
+             patch("gateway.run._load_gateway_config") as mock_config, \
+             patch("run_agent.AIAgent") as mock_agent_cls:
+
+            mock_kwargs.return_value = {"api_key": "test-key", "base_url": None,
+                                        "provider": None, "api_mode": None,
+                                        "command": None, "args": []}
+            mock_model.return_value = "test/model"
+            mock_config.return_value = {}
+            mock_agent_cls.return_value = MagicMock()
+
+            adapter._create_agent()
+
+            mock_agent_cls.assert_called_once()
+            assert mock_agent_cls.call_args.kwargs.get("skip_memory") is True
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_create_agent_respects_config_override(self):
         """User can override API server toolsets via platform_toolsets in config.yaml."""
         from gateway.platforms.api_server import APIServerAdapter

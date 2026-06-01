@@ -1966,6 +1966,11 @@ def _background_agent_kwargs(agent, task_id: str) -> dict:
         "service_tier": getattr(agent, "service_tier", None) or _load_service_tier(),
         "request_overrides": dict(getattr(agent, "request_overrides", {}) or {}),
         "platform": "tui",
+        # Background-task orchestrator: same restricted parent toolset and
+        # delegates domain work, so the blocking Lore prefetch_all() (~4.3s)
+        # is unused-for-routing latency. skip_memory=True leaves
+        # _memory_manager=None; delegated children build their own.
+        "skip_memory": True,
         "session_db": _get_db(),
         "fallback_model": getattr(agent, "_fallback_model", None),
     }
@@ -2048,7 +2053,14 @@ def _make_agent(sid: str, key: str, session_id: str | None = None):
         checkpoints_enabled=is_truthy_value(os.environ.get("HERMES_TUI_CHECKPOINTS")),
         pass_session_id=is_truthy_value(os.environ.get("HERMES_TUI_PASS_SESSION_ID")),
         skip_context_files=is_truthy_value(os.environ.get("HERMES_IGNORE_RULES")),
-        skip_memory=is_truthy_value(os.environ.get("HERMES_IGNORE_RULES")),
+        # Parent orchestrator (TUI / dashboard embedded chat): never construct
+        # a memory manager. SOUL.md delegates ALL recall to the `memory` child
+        # profile, so the blocking Lore prefetch_all() at the top of
+        # run_conversation (~4.3s/request) is latency the parent never uses for
+        # routing. Forced True regardless of HERMES_IGNORE_RULES (skip_context_files
+        # above still honours it for the rules/SOUL injection). Delegated children
+        # build their own memory manager and are unaffected.
+        skip_memory=True,
         **_agent_cbs(sid),
     )
 

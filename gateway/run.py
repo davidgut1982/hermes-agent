@@ -11741,6 +11741,12 @@ class GatewayRunner:
                     chat_name=source.chat_name,
                     chat_type=source.chat_type,
                     thread_id=source.thread_id,
+                    # Background-task orchestrator: same restricted parent
+                    # toolset as the interactive parent and delegates domain
+                    # work to children, so the blocking Lore prefetch_all()
+                    # (~4.3s) is unused-for-routing latency. skip_memory=True
+                    # leaves _memory_manager=None; children build their own.
+                    skip_memory=True,
                     session_db=self._session_db,
                     fallback_model=self._fallback_model,
                 )
@@ -16636,6 +16642,15 @@ class GatewayRunner:
                     chat_type=source.chat_type,
                     thread_id=source.thread_id,
                     gateway_session_key=session_key,
+                    # Parent orchestrator (Telegram/Discord/Slack/etc.): never
+                    # construct a memory manager. SOUL.md delegates ALL recall
+                    # to the `memory` child profile, so the blocking Lore
+                    # prefetch_all() at the top of run_conversation (~4.3s/request)
+                    # is latency the parent never uses for routing. skip_memory=True
+                    # leaves _memory_manager=None so the prefetch is skipped; the
+                    # cached agent retains None across turns. Delegated children
+                    # build their own memory manager and are unaffected.
+                    skip_memory=True,
                     session_db=self._session_db,
                     fallback_model=self._fallback_model,
                 )

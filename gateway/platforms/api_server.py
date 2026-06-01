@@ -984,6 +984,14 @@ class APIServerAdapter(BasePlatformAdapter):
             enabled_toolsets=enabled_toolsets,
             session_id=session_id,
             platform="api_server",
+            # Parent orchestrator: never construct a memory manager. SOUL.md
+            # delegates ALL recall to the `memory` child profile, so the
+            # blocking Lore prefetch_all() at the top of run_conversation
+            # (~4.3s/request) is pure latency the parent never uses for
+            # routing. skip_memory=True leaves _memory_manager=None so the
+            # prefetch is skipped. Delegated children build their own memory
+            # manager independently and are unaffected. See PR feat/orchestrator-skip-memory.
+            skip_memory=True,
             stream_delta_callback=stream_delta_callback,
             tool_progress_callback=tool_progress_callback,
             tool_start_callback=tool_start_callback,
