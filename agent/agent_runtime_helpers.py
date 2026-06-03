@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hermes_cli.timeouts import get_provider_request_timeout
-from agent.prompt_builder import format_steer_marker
 from agent.tool_dispatch_helpers import _trajectory_normalize_msg, make_tool_result_message
 from agent.trajectory import convert_scratchpad_to_think
 from agent.credential_pool import STATUS_EXHAUSTED
@@ -49,7 +48,7 @@ def _ra():
 
 
 AGENT_RUNTIME_POST_HOOK_TOOL_NAMES = frozenset(
-    {"todo", "session_search", "memory", "clarify", "model_switch", "delegate_task"}
+    {"todo", "session_search", "memory", "clarify", "delegate_task"}
 )
 
 
@@ -1150,33 +1149,6 @@ def dump_api_request_debug(
         return None
 
 
-# OpenRouter passes through Anthropic-style ``cache_control`` breakpoints for
-# this known set of non-Claude model slugs (Qwen / DeepSeek families) that
-# support explicit caching on their upstream provider. Without breakpoints
-# these models return 0% cache reads and re-bill the full prompt every turn.
-# Only models empirically verified to accept the markers (no 400s, real cache
-# hits) are listed here. Slugs are matched case-insensitively against the
-# lowercased full model id (which carries the provider prefix, e.g.
-# ``deepseek/``). OpenAI- and Google-family models are intentionally omitted:
-# OpenRouter manages their caching automatically.
-#
-# Qwen family + DeepSeek V3.2 ported from cline/cline#10578 (see #20945).
-# DeepSeek V4-flash (and its dated pin) verified on prod Hermes 2026-05-31:
-# 0% -> 98% cache hit rate after adding breakpoints.
-# See user guide: https://github.com/NousResearch/hermes-agent/pull/36971
-_OPENROUTER_EXPLICIT_CACHE_CONTROL_MODEL_IDS: frozenset[str] = frozenset({
-    # Qwen family (ported from cline/cline#10578)
-    "qwen/qwen-plus",
-    "qwen/qwen3-max",
-    "qwen/qwen3.6-plus",
-    "qwen/qwen3-coder-plus",
-    "qwen/qwen3-coder-flash",
-    # DeepSeek (V3.2 from #20945; V4-flash verified on prod: 0% -> 98%, 2026-05-31)
-    "deepseek/deepseek-v3.2",
-    "deepseek/deepseek-v4-flash",
-    "deepseek/deepseek-v4-flash-20260423",
-})
-
 
 def anthropic_prompt_cache_policy(
     agent,
@@ -1233,15 +1205,6 @@ def anthropic_prompt_cache_policy(
     if is_native_anthropic:
         return True, True
     if (is_openrouter or is_nous_portal) and is_claude:
-        return True, False
-    # OpenRouter passes through explicit cache_control breakpoints for a known
-    # allow-list of non-Claude slugs (Qwen / DeepSeek). Envelope layout
-    # (native_anthropic=False), matching the OpenRouter Claude branch above.
-    # Without this our prod default deepseek/deepseek-v4-flash falls through to
-    # (False, False) and serves 0% cache hits. Extends #20945 (Qwen +
-    # DeepSeek-v3.2) with deepseek-v4-flash and its dated pin.
-    # See user guide: https://github.com/NousResearch/hermes-agent/pull/36971
-    if is_openrouter and model_lower in _OPENROUTER_EXPLICIT_CACHE_CONTROL_MODEL_IDS:
         return True, False
     # Nous Portal Qwen (e.g. qwen3.6-plus) takes the same envelope-layout
     # cache_control path as Portal Claude. Portal proxies to OpenRouter
@@ -1656,13 +1619,37 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
 
 def invoke_tool(agent, function_name: str, function_args: dict, effective_task_id: str,
                  tool_call_id: Optional[str] = None, messages: list = None,
-                 pre_tool_block_checked: bool = False) -> str:
+                 pre_tool_block_checked: bool = False,
+                 skip_tool_request_middleware: bool = False,
+                 tool_request_middleware_trace: Optional[List[Dict[str, Any]]] = None) -> str:
     """Invoke a single tool and return the result string. No display logic.
 
     Handles both agent-level tools (todo, memory, etc.) and registry-dispatched
     tools. Used by the concurrent execution path; the sequential path retains
     its own inline invocation for backward-compatible display handling.
     """
+    if not isinstance(function_args, dict):
+        function_args = {}
+
+    _tool_middleware_trace = list(tool_request_middleware_trace or [])
+    try:
+        from hermes_cli.middleware import apply_tool_request_middleware
+
+        if not skip_tool_request_middleware:
+            _tool_request_mw = apply_tool_request_middleware(
+                function_name,
+                function_args,
+                task_id=effective_task_id or "",
+                session_id=getattr(agent, "session_id", "") or "",
+                tool_call_id=tool_call_id or "",
+                turn_id=getattr(agent, "_current_turn_id", "") or "",
+                api_request_id=getattr(agent, "_current_api_request_id", "") or "",
+            )
+            function_args = _tool_request_mw.payload
+            _tool_middleware_trace = _tool_request_mw.trace
+    except Exception as _mw_err:
+        logger.debug("tool_request middleware error: %s", _mw_err)
+
     # Check plugin hooks for a block directive before executing anything.
     block_message: Optional[str] = None
     if not pre_tool_block_checked:
@@ -1676,6 +1663,7 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                 tool_call_id=tool_call_id or "",
                 turn_id=getattr(agent, "_current_turn_id", "") or "",
                 api_request_id=getattr(agent, "_current_api_request_id", "") or "",
+                middleware_trace=list(_tool_middleware_trace),
             )
         except Exception:
             pass
@@ -1695,6 +1683,7 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                 status="blocked",
                 error_type="plugin_block",
                 error_message=block_message,
+                middleware_trace=list(_tool_middleware_trace),
             )
         except Exception:
             pass
@@ -1702,12 +1691,13 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
 
     tool_start_time = time.monotonic()
 
-    def _finish_agent_tool(result: Any) -> Any:
+    def _finish_agent_tool(result: Any, observed_args: Optional[dict] = None) -> Any:
+        hook_args = observed_args if isinstance(observed_args, dict) else function_args
         try:
             from model_tools import _emit_post_tool_call_hook
             _emit_post_tool_call_hook(
                 function_name=function_name,
-                function_args=function_args,
+                function_args=hook_args,
                 result=result,
                 task_id=effective_task_id or "",
                 session_id=getattr(agent, "session_id", "") or "",
@@ -1715,161 +1705,117 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                 turn_id=getattr(agent, "_current_turn_id", "") or "",
                 api_request_id=getattr(agent, "_current_api_request_id", "") or "",
                 duration_ms=int((time.monotonic() - tool_start_time) * 1000),
+                middleware_trace=list(_tool_middleware_trace),
             )
         except Exception:
             pass
         return result
 
     if function_name == "todo":
-        from tools.todo_tool import todo_tool as _todo_tool
-        return _finish_agent_tool(
-            _todo_tool(
-                todos=function_args.get("todos"),
-                merge=function_args.get("merge", False),
-                store=agent._todo_store,
+        def _execute(next_args: dict) -> Any:
+            from tools.todo_tool import todo_tool as _todo_tool
+            return _finish_agent_tool(
+                _todo_tool(
+                    todos=next_args.get("todos"),
+                    merge=next_args.get("merge", False),
+                    store=agent._todo_store,
+                ),
+                next_args,
             )
-        )
     elif function_name == "session_search":
-        session_db = agent._get_session_db_for_recall()
-        if not session_db:
-            from hermes_state import format_session_db_unavailable
-            return _finish_agent_tool(json.dumps({"success": False, "error": format_session_db_unavailable()}))
-        from tools.session_search_tool import session_search as _session_search
-        return _finish_agent_tool(
-            _session_search(
-                query=function_args.get("query", ""),
-                role_filter=function_args.get("role_filter"),
-                limit=function_args.get("limit", 3),
-                session_id=function_args.get("session_id"),
-                around_message_id=function_args.get("around_message_id"),
-                window=function_args.get("window", 5),
-                sort=function_args.get("sort"),
-                db=session_db,
-                current_session_id=agent.session_id,
+        def _execute(next_args: dict) -> Any:
+            session_db = agent._get_session_db_for_recall()
+            if not session_db:
+                from hermes_state import format_session_db_unavailable
+                return _finish_agent_tool(json.dumps({"success": False, "error": format_session_db_unavailable()}), next_args)
+            from tools.session_search_tool import session_search as _session_search
+            return _finish_agent_tool(
+                _session_search(
+                    query=next_args.get("query", ""),
+                    role_filter=next_args.get("role_filter"),
+                    limit=next_args.get("limit", 3),
+                    session_id=next_args.get("session_id"),
+                    around_message_id=next_args.get("around_message_id"),
+                    window=next_args.get("window", 5),
+                    sort=next_args.get("sort"),
+                    db=session_db,
+                    current_session_id=agent.session_id,
+                ),
+                next_args,
             )
-        )
     elif function_name == "memory":
-        target = function_args.get("target", "memory")
-        from tools.memory_tool import memory_tool as _memory_tool
-        result = _memory_tool(
-            action=function_args.get("action"),
-            target=target,
-            content=function_args.get("content"),
-            old_text=function_args.get("old_text"),
-            store=agent._memory_store,
-        )
-        # Bridge: notify external memory provider of built-in memory writes
-        if agent._memory_manager and function_args.get("action") in {"add", "replace"}:
-            try:
-                agent._memory_manager.on_memory_write(
-                    function_args.get("action", ""),
-                    target,
-                    function_args.get("content", ""),
-                    metadata=agent._build_memory_write_metadata(
-                        task_id=effective_task_id,
-                        tool_call_id=tool_call_id,
-                    ),
-                )
-            except Exception:
-                pass
-        return _finish_agent_tool(result)
-    elif agent._memory_manager and agent._memory_manager.has_tool(function_name):
-        return _finish_agent_tool(agent._memory_manager.handle_tool_call(function_name, function_args))
-    elif function_name == "clarify":
-        from tools.clarify_tool import clarify_tool as _clarify_tool
-        return _finish_agent_tool(
-            _clarify_tool(
-                question=function_args.get("question", ""),
-                choices=function_args.get("choices"),
-                callback=agent.clarify_callback,
+        def _execute(next_args: dict) -> Any:
+            target = next_args.get("target", "memory")
+            from tools.memory_tool import memory_tool as _memory_tool
+            result = _memory_tool(
+                action=next_args.get("action"),
+                target=target,
+                content=next_args.get("content"),
+                old_text=next_args.get("old_text"),
+                store=agent._memory_store,
             )
-        )
-    elif function_name == "model_switch":
-        from tools.model_switch_tool import model_switch_tool as _model_switch_tool
-        return _model_switch_tool(
-            agent,
-            slug=function_args.get("slug", ""),
-            reason=function_args.get("reason", ""),
-            scope=function_args.get("scope", "session"),
-        )
-    elif function_name == "model_switch":
-        from tools.model_switch_tool import model_switch_tool as _model_switch_tool
-        return _model_switch_tool(
-            agent,
-            slug=function_args.get("slug", ""),
-            reason=function_args.get("reason", ""),
-            scope=function_args.get("scope", "session"),
-        )
+            # Bridge: notify external memory provider of built-in memory writes
+            if agent._memory_manager and next_args.get("action") in {"add", "replace"}:
+                try:
+                    agent._memory_manager.on_memory_write(
+                        next_args.get("action", ""),
+                        target,
+                        next_args.get("content", ""),
+                        metadata=agent._build_memory_write_metadata(
+                            task_id=effective_task_id,
+                            tool_call_id=tool_call_id,
+                        ),
+                    )
+                except Exception:
+                    pass
+            return _finish_agent_tool(result, next_args)
+    elif agent._memory_manager and agent._memory_manager.has_tool(function_name):
+        def _execute(next_args: dict) -> Any:
+            return _finish_agent_tool(agent._memory_manager.handle_tool_call(function_name, next_args), next_args)
+    elif function_name == "clarify":
+        def _execute(next_args: dict) -> Any:
+            from tools.clarify_tool import clarify_tool as _clarify_tool
+            return _finish_agent_tool(
+                _clarify_tool(
+                    question=next_args.get("question", ""),
+                    choices=next_args.get("choices"),
+                    callback=agent.clarify_callback,
+                ),
+                next_args,
+            )
     elif function_name == "delegate_task":
-        return _finish_agent_tool(agent._dispatch_delegate_task(function_args))
+        def _execute(next_args: dict) -> Any:
+            return _finish_agent_tool(agent._dispatch_delegate_task(next_args), next_args)
     else:
-        return _ra().handle_function_call(
-            function_name, function_args, effective_task_id,
-            tool_call_id=tool_call_id,
-            session_id=agent.session_id or "",
-            turn_id=getattr(agent, "_current_turn_id", "") or "",
-            api_request_id=getattr(agent, "_current_api_request_id", "") or "",
-            enabled_tools=list(agent.valid_tool_names) if agent.valid_tool_names else None,
-            skip_pre_tool_call_hook=True,
-            enabled_toolsets=getattr(agent, "enabled_toolsets", None),
-            disabled_toolsets=getattr(agent, "disabled_toolsets", None),
-        )
+        def _execute(next_args: dict) -> Any:
+            return _ra().handle_function_call(
+                function_name, next_args, effective_task_id,
+                tool_call_id=tool_call_id,
+                session_id=agent.session_id or "",
+                turn_id=getattr(agent, "_current_turn_id", "") or "",
+                api_request_id=getattr(agent, "_current_api_request_id", "") or "",
+                enabled_tools=list(agent.valid_tool_names) if agent.valid_tool_names else None,
+                skip_pre_tool_call_hook=True,
+                skip_tool_request_middleware=True,
+                enabled_toolsets=getattr(agent, "enabled_toolsets", None),
+                disabled_toolsets=getattr(agent, "disabled_toolsets", None),
+                tool_request_middleware_trace=list(_tool_middleware_trace),
+            )
 
+    from hermes_cli.middleware import run_tool_execution_middleware
 
+    return run_tool_execution_middleware(
+        function_name,
+        function_args,
+        lambda next_args: _execute(next_args if isinstance(next_args, dict) else function_args),
+        original_args=function_args,
+        task_id=effective_task_id or "",
+        session_id=getattr(agent, "session_id", "") or "",
+        tool_call_id=tool_call_id or "",
+        turn_id=getattr(agent, "_current_turn_id", "") or "",
+        api_request_id=getattr(agent, "_current_api_request_id", "") or "",
+    )
 
-def normalise_mcp_tool_prefix(name: str) -> str:
-    """Collapse a duplicated / corrupted ``mcp_`` prefix to a single one.
-
-    Qwen3-class tool-callers (e.g. Qwen3-235B via OpenRouter) token-split
-    and emit MCP tool names with an extra leading character or a doubled
-    prefix:
-
-    * ``mmcp_knowledge_kb_get`` — spurious leading ``m`` turns ``mcp_`` into
-      ``mmcp_``.
-    * ``mcp_mcp_knowledge_kb_get`` — the ``mcp_`` prefix is emitted twice.
-    * ``xmcp_...`` / ``abmcp_...`` — up to ~5 chars of leading junk before
-      the real ``mcp_`` prefix.
-
-    Corruption can also *stack* — ``mcp_mcp_mcp_knowledge_kb_get`` nests the
-    ``mcp_`` prefix three deep — so the collapse runs as a bounded fixpoint
-    loop: each pass strips at most one layer and the loop terminates once a
-    pass leaves ``name`` unchanged. Every pass either strictly shortens
-    ``name`` or makes no change, so the loop cannot spin forever regardless
-    of input.
-
-    Normalising these *before* the fuzzy match in :func:`repair_tool_call`
-    lets them hit the cheap direct-match fast-path instead of falling
-    through to the slow ``difflib`` fuzzy match (which also logs a repair
-    line per occurrence). Returns ``name`` unchanged when no such
-    corruption is detected, so legit names (``mcp_knowledge_kb_get``) and
-    truly-garbled names (random tokens, bare ``kb_search`` with no prefix)
-    are untouched and still fall through to the normal repair path.
-    """
-    if not name:
-        return name
-    # Bounded fixpoint: collapse stacked corruption to a single ``mcp_``.
-    # Each pass strips at most one layer; the loop stops when a pass is a
-    # no-op, which always happens because every change shortens ``name``.
-    prev = None
-    while prev != name:
-        prev = name
-        lowered = name.lower()
-        # Doubled prefix: strip one leading ``mcp_`` (4 chars). Looping over
-        # this collapses arbitrary nesting (``mcp_mcp_mcp_tool`` -> ... ->
-        # ``mcp_tool``) one layer per pass.
-        if lowered.startswith("mcp_mcp_"):
-            name = name[4:]
-            continue
-        # Spurious single leading ``m``: ``mmcp_`` -> ``mcp_``.
-        if lowered.startswith("mmcp_"):
-            name = name[1:]
-            continue
-        # Up to 5 chars of leading junk before a real ``mcp_`` prefix.
-        idx = lowered.find("mcp_")
-        if 0 < idx <= 5:
-            name = name[idx:]
-            continue
-    return name
 
 
 def repair_tool_call(agent, tool_name: str) -> str | None:
@@ -1898,12 +1844,6 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
 
     if not tool_name:
         return None
-
-    # Repair duplicated / corrupted ``mcp_`` prefixes (mmcp_, mcp_mcp_,
-    # leading junk before mcp_) emitted by Qwen3-class tool-callers before
-    # anything else, so corrupted names normalise to the direct-match
-    # fast-path below instead of the slow fuzzy fallback.
-    tool_name = normalise_mcp_tool_prefix(tool_name)
 
     def _norm(s: str) -> str:
         return s.lower().replace("-", "_").replace(" ", "_")
@@ -1944,43 +1884,9 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
             return c
 
     # Fuzzy match as last resort.
-    #
-    # Guard against repairing across distinct operations that merely share a
-    # long common namespace prefix.  For namespaced MCP tools the shared
-    # ``mcp_<server>_`` prefix can push two semantically-opposite operations
-    # (e.g. ``mcp_knowledge_kb_search`` vs ``mcp_knowledge_kb_add``) over the
-    # 0.7 cutoff, so a missing read tool would be silently repaired into a
-    # write tool — a dangerous and incorrect remap (BUG-8).  We strip the
-    # shared prefix and re-score on the *operation suffix* (the part that
-    # actually distinguishes the tools); only accept the fuzzy candidate when
-    # the operations themselves are similar (legitimate typo) rather than just
-    # the namespace.
-    from difflib import SequenceMatcher
-
-    def _op_suffix(name: str, other: str) -> str:
-        """Return ``name`` with the longest shared leading ``_``-segment run
-        (the common namespace prefix) removed, so only the operation remains."""
-        a, b = name.split("_"), other.split("_")
-        i = 0
-        while i < len(a) and i < len(b) and a[i] == b[i]:
-            i += 1
-        return "_".join(a[i:]) or name
-
     matches = get_close_matches(lowered, agent.valid_tool_names, n=1, cutoff=0.7)
     if matches:
-        candidate = matches[0]
-        op_a = _op_suffix(lowered, candidate)
-        op_b = _op_suffix(candidate, lowered)
-        # If the emitted op and candidate op share a namespace prefix but the
-        # operations diverge, require the operations themselves to be a close
-        # match.  When there is no shared prefix (op == full name) this is a
-        # no-op and ordinary fuzzy behaviour is preserved.
-        shared_prefix = op_a != lowered or op_b != candidate
-        if shared_prefix:
-            op_ratio = SequenceMatcher(None, op_a, op_b).ratio()
-            if op_ratio < 0.7:
-                return None
-        return candidate
+        return matches[0]
 
     return None
 
@@ -2472,7 +2378,7 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
             existing = getattr(agent, "_pending_steer", None)
             agent._pending_steer = (existing + "\n" + steer_text) if existing else steer_text
         return
-    marker = format_steer_marker(steer_text)
+    marker = f"\n\nUser guidance: {steer_text}"
     existing_content = messages[target_idx].get("content", "")
     if not isinstance(existing_content, str):
         # Anthropic multimodal content blocks — preserve them and append
@@ -2563,7 +2469,6 @@ __all__ = [
     "create_openai_client",
     "switch_model",
     "invoke_tool",
-    "normalise_mcp_tool_prefix",
     "repair_tool_call",
     "sanitize_api_messages",
     "looks_like_codex_intermediate_ack",
