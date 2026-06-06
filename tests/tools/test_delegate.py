@@ -33,10 +33,7 @@ from tools.delegate_tool import (
     _build_child_system_prompt,
     _load_profiles,
     _resolve_profile,
-    _strip_blocked_tools,
-    _resolve_child_credential_pool,
-    _resolve_delegation_credentials,
-)
+    _extract_output_tail,
 
 
 def _make_mock_parent(depth=0):
