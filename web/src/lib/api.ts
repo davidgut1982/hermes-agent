@@ -513,14 +513,46 @@ export const api = {
       body: JSON.stringify({ name, enabled }),
     }),
   getToolsets: () => fetchJSON<ToolsetInfo[]>("/api/tools/toolsets"),
-
-  // Agents (read-only view of delegation agent_profiles)
-  getAgentProfiles: () =>
-    fetchJSON<{ agent_profiles: AgentProfileInfo[] }>("/api/agent-profiles"),
-  getAgentProfile: (name: string) =>
-    fetchJSON<AgentProfileDetail>(`/api/agent-profiles/${encodeURIComponent(name)}`),
-  getActiveAgents: () =>
-    fetchJSON<{ active: ActiveAgentInfo[] }>("/api/agent-profiles/active"),
+  toggleToolset: (name: string, enabled: boolean) =>
+    fetchJSON<{ ok: boolean; name: string; enabled: boolean }>(
+      `/api/tools/toolsets/${encodeURIComponent(name)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      },
+    ),
+  getToolsetConfig: (name: string) =>
+    fetchJSON<ToolsetConfig>(
+      `/api/tools/toolsets/${encodeURIComponent(name)}/config`,
+    ),
+  selectToolsetProvider: (name: string, provider: string) =>
+    fetchJSON<{ ok: boolean; name: string; provider: string }>(
+      `/api/tools/toolsets/${encodeURIComponent(name)}/provider`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      },
+    ),
+  saveToolsetEnv: (name: string, env: Record<string, string>) =>
+    fetchJSON<ToolsetEnvResult>(
+      `/api/tools/toolsets/${encodeURIComponent(name)}/env`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ env }),
+      },
+    ),
+  runToolsetPostSetup: (name: string, key: string) =>
+    fetchJSON<ActionResponse & { key: string }>(
+      `/api/tools/toolsets/${encodeURIComponent(name)}/post-setup`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      },
+    ),
 
   // Session search (FTS5)
   searchSessions: (q: string) =>
@@ -1627,39 +1659,37 @@ export interface ToolsetInfo {
   tools: string[];
 }
 
-// Read-only view of a delegation agent_profile (from config.yaml agent_profiles).
-export interface AgentProfileInfo {
-  name: string;
-  model: string;
-  provider: string;
-  toolsets: string[];
-  max_iterations: number | null;
-  description: string;
-  tool_count: number | null;
-  warnings: string[];
-  system_prompt_preview: string;
+export interface ToolsetProviderEnvVar {
+  key: string;
+  prompt: string;
+  url: string | null;
+  default: string | null;
+  is_set: boolean;
 }
-export interface AgentProfileDetail {
+
+export interface ToolsetProvider {
   name: string;
-  model: string;
-  provider: string;
-  toolsets: string[];
-  max_iterations: number | null;
-  description: string;
-  tool_count: number | null;
-  warnings: string[];
-  system_prompt: string;
-  system_prompt_file: string;
+  badge: string;
+  tag: string;
+  env_vars: ToolsetProviderEnvVar[];
+  post_setup: string | null;
+  requires_nous_auth: boolean;
+  is_active: boolean;
 }
-export interface ActiveAgentInfo {
-  subagent_id?: string;
-  parent_id?: string;
-  depth?: number;
-  goal?: string;
-  model?: string;
-  started_at?: number;
-  tool_count?: number;
-  status?: string;
+
+export interface ToolsetConfig {
+  name: string;
+  has_category: boolean;
+  providers: ToolsetProvider[];
+  active_provider: string | null;
+}
+
+export interface ToolsetEnvResult {
+  ok: boolean;
+  name: string;
+  saved: string[];
+  skipped: string[];
+  is_set: Record<string, boolean>;
 }
 
 export interface SessionSearchResult {
