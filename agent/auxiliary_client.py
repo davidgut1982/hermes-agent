@@ -106,13 +106,6 @@ from utils import base_url_host_matches, base_url_hostname, normalize_proxy_env_
 
 logger = logging.getLogger(__name__)
 
-# Config/api_key sentinel values that must be treated as *unset* rather than
-# sent verbatim as a bearer token. A literal ``api_key: none`` in config.yaml is
-# parsed by YAML as the string "none" (NOT null), and "no-key-required" is our
-# own local-server placeholder; neither is a real credential. When the resolved
-# api_key is one of these, an env-var fallback (e.g. OPENROUTER_API_KEY) wins.
-_CUSTOM_KEY_SENTINELS = {"none", "null", "no-key-required", "nokey", "no_key"}
-
 
 def _safe_isinstance(obj: Any, maybe_type: Any) -> bool:
     """Return False instead of raising when a patched symbol is not a type."""
@@ -315,10 +308,7 @@ _API_KEY_PROVIDER_AUX_MODELS_FALLBACK: Dict[str, str] = {
     "stepfun": "step-3.5-flash",
     "kimi-coding-cn": "kimi-k2-turbo-preview",
     "gmi": "google/gemini-3.1-flash-lite-preview",
-    "minimax": "MiniMax-M2.7",
-    "minimax-oauth": "MiniMax-M2.7-highspeed",
-    "minimax-cn": "MiniMax-M2.7",
-    "anthropic": "",  # backstop removed 2026-05-31: use main model fallback instead of haiku
+    "anthropic": "claude-haiku-4-5-20251001",
     "opencode-zen": "gemini-3-flash",
     "opencode-go": "glm-5",
     "kilocode": "google/gemini-3-flash-preview",
@@ -363,38 +353,40 @@ _OR_HEADERS_BASE = {
     "X-OpenRouter-Categories": "productivity,cli-agent",
 }
 
-# Per-component OpenRouter X-Title defaults derived from the auxiliary task name.
-# Vision aux work attributes to Hermes-Aux-Vision; every other auxiliary task
-# (compression, session_search, title_generation, skills_hub, mcp, web_extract,
-# plugin LLM, …) attributes to Hermes-Aux-Text. Callers that are a distinct
-# component (native OCR, MoA, main chat) pass an explicit or_title that wins.
-_OR_TITLE_AUX_TEXT = "Hermes-Aux-Text"
-_OR_TITLE_AUX_VISION = "Hermes-Aux-Vision"
-
-
-def _default_or_title_for_task(task: Optional[str]) -> Optional[str]:
-    """Map an auxiliary *task* name to its default OpenRouter X-Title.
-
-    Why: lets every aux text/vision call self-attribute to its component app
-    without editing each individual call site — the existing ``task`` argument
-    already encodes the component, so the title can be derived from it.
-    What: returns ``Hermes-Aux-Vision`` for ``task == "vision"``,
-    ``Hermes-Aux-Text`` for any other non-empty task, and ``None`` for no task
-    (so untitled calls keep the base ``Hermes Agent`` attribution).
-    Test: assert _default_or_title_for_task("vision") == "Hermes-Aux-Vision",
-    ("compression") == "Hermes-Aux-Text", and (None) is None.
-    """
-    if not task:
-        return None
-    if task == "vision":
-        return _OR_TITLE_AUX_VISION
-    return _OR_TITLE_AUX_TEXT
-
 # Truthy values for boolean env-var parsing.
 _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
-def build_or_headers(or_config: dict | None = None, or_title: str | None = None) -> dict:
+def _apply_user_default_headers(headers: dict | None) -> dict | None:
+    """Merge user-configured ``model.default_headers`` onto resolved headers.
+
+    User values take precedence over provider/SDK defaults, mirroring the main
+    agent client (``AIAgent._apply_user_default_headers``). This lets a
+    ``custom`` OpenAI-compatible endpoint behind a gateway/WAF that rejects the
+    OpenAI SDK's identifying headers (``User-Agent: OpenAI/Python ...``,
+    ``X-Stainless-*``) override them for auxiliary calls too — otherwise the
+    main turn would succeed but title/compression/vision calls to the same
+    endpoint would still fail. (#40033)
+
+    Returns the merged dict, or the original ``headers`` (possibly ``None``)
+    when nothing is configured. No allocation when there are no overrides.
+    """
+    try:
+        from hermes_cli.config import cfg_get, load_config
+        user_headers = cfg_get(load_config(), "model", "default_headers")
+    except Exception:
+        return headers
+    if not isinstance(user_headers, dict) or not user_headers:
+        return headers
+    merged = dict(headers or {})
+    for key, value in user_headers.items():
+        if value is None:
+            continue
+        merged[str(key)] = str(value)
+    return merged or headers
+
+
+def build_or_headers(or_config: dict | None = None) -> dict:
     """Build OpenRouter headers, optionally including response-cache headers.
 
     Precedence for response cache: env var > config.yaml > default (enabled).
@@ -408,20 +400,8 @@ def build_or_headers(or_config: dict | None = None, or_title: str | None = None)
 
     *or_config* is the ``openrouter`` section from config.yaml.  When *None*,
     falls back to reading config from disk via ``load_config()``.
-
-    *or_title* overrides the per-component OpenRouter ``X-Title`` dashboard
-    attribution (e.g. "Hermes-MainChat") for clients built from these
-    ``default_headers``. When *None*, the base ``X-Title: "Hermes Agent"`` is
-    kept. HTTP-Referer and all other base headers are always preserved — this
-    is pure attribution, no behavior change.
-
-    Test: ``build_or_headers(or_title="Hermes-MainChat")["X-Title"] ==
-    "Hermes-MainChat"`` and its ``HTTP-Referer`` is unchanged; calling with no
-    ``or_title`` keeps ``X-Title == "Hermes Agent"``.
     """
     headers = dict(_OR_HEADERS_BASE)
-    if or_title:
-        headers["X-Title"] = or_title
 
     # Resolve config from disk if not provided.
     if or_config is None:
@@ -1544,6 +1524,9 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
                         extra["default_headers"] = dict(_ph_aux.default_headers)
                 except Exception:
                     pass
+            _merged_aux = _apply_user_default_headers(extra.get("default_headers"))
+            if _merged_aux:
+                extra["default_headers"] = _merged_aux
             _client = OpenAI(api_key=api_key, base_url=base_url, **extra)
             _client = _maybe_wrap_anthropic(_client, model, api_key, raw_base_url)
             return _client, model
@@ -1581,6 +1564,9 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
                     extra["default_headers"] = dict(_ph_aux2.default_headers)
             except Exception:
                 pass
+        _merged_aux2 = _apply_user_default_headers(extra.get("default_headers"))
+        if _merged_aux2:
+            extra["default_headers"] = _merged_aux2
         _client = OpenAI(api_key=api_key, base_url=base_url, **extra)
         _client = _maybe_wrap_anthropic(_client, model, api_key, raw_base_url)
         return _client, model
@@ -1971,6 +1957,13 @@ def _try_custom_endpoint() -> Tuple[Optional[Any], Optional[str]]:
     logger.debug("Auxiliary client: custom endpoint (%s, api_mode=%s)", model, custom_mode or "chat_completions")
     _clean_base, _dq = _extract_url_query_params(custom_base)
     _extra = {"default_query": _dq} if _dq else {}
+    # User-configured model.default_headers override the SDK's identifying
+    # headers (User-Agent: OpenAI/Python ..., X-Stainless-*) on this custom
+    # endpoint's auxiliary calls too — matching the main agent client so the
+    # whole session reaches a gateway/WAF that rejects the SDK fingerprint. (#40033)
+    _custom_headers = _apply_user_default_headers(None)
+    if _custom_headers:
+        _extra["default_headers"] = _custom_headers
     if custom_mode == "codex_responses":
         real_client = OpenAI(api_key=custom_key, base_url=_clean_base, **_extra)
         return CodexAuxiliaryClient(real_client, model), model
@@ -2217,7 +2210,7 @@ def _try_anthropic(explicit_api_key: str = None) -> Tuple[Optional[Any], Optiona
 
     from agent.anthropic_adapter import _is_oauth_token
     is_oauth = _is_oauth_token(token)
-    model = _get_aux_model_for_provider("anthropic") or ""  # backstop removed 2026-05-31
+    model = _get_aux_model_for_provider("anthropic") or "claude-haiku-4-5-20251001"
     logger.debug("Auxiliary client: Anthropic native (%s) at %s (oauth=%s)", model, base_url, is_oauth)
     try:
         real_client = build_anthropic_client(token, base_url)
@@ -2814,7 +2807,6 @@ def _retry_same_provider_sync(
     tools: Optional[list],
     effective_timeout: float,
     effective_extra_body: dict,
-    or_title: Optional[str] = None,
 ) -> Any:
     if task == "vision":
         _, retry_client, retry_model = resolve_vision_provider_client(
@@ -2849,7 +2841,6 @@ def _retry_same_provider_sync(
         timeout=effective_timeout,
         extra_body=effective_extra_body,
         base_url=retry_base or resolved_base_url,
-        or_title=or_title,
     )
     if _is_anthropic_compat_endpoint(resolved_provider, retry_base):
         retry_kwargs["messages"] = _convert_openai_images_to_anthropic(retry_kwargs["messages"])
@@ -2873,7 +2864,6 @@ async def _retry_same_provider_async(
     tools: Optional[list],
     effective_timeout: float,
     effective_extra_body: dict,
-    or_title: Optional[str] = None,
 ) -> Any:
     if task == "vision":
         _, retry_client, retry_model = resolve_vision_provider_client(
@@ -2908,7 +2898,6 @@ async def _retry_same_provider_async(
         timeout=effective_timeout,
         extra_body=effective_extra_body,
         base_url=retry_base or resolved_base_url,
-        or_title=or_title,
     )
     if _is_anthropic_compat_endpoint(resolved_provider, retry_base):
         retry_kwargs["messages"] = _convert_openai_images_to_anthropic(retry_kwargs["messages"])
@@ -3344,6 +3333,9 @@ def _to_async_client(sync_client, model: str, is_vision: bool = False):
                     async_kwargs["default_headers"] = dict(_ph_async.default_headers)
         except Exception:
             pass
+    _merged_async = _apply_user_default_headers(async_kwargs.get("default_headers"))
+    if _merged_async:
+        async_kwargs["default_headers"] = _merged_async
     return AsyncOpenAI(**async_kwargs), model
 
 
@@ -3593,33 +3585,9 @@ def resolve_provider_client(
     if provider == "custom":
         if explicit_base_url:
             custom_base = _to_openai_base_url(explicit_base_url).strip()
-            # Treat config sentinels ("none"/"null"/"no-key-required") as
-            # *unset* so an env-var fallback can win. A literal ``api_key: none``
-            # in config.yaml (parsed by YAML as the string "none", NOT null)
-            # must never be sent as the bearer token — it 401s. See the OCR /
-            # describe OpenRouter auth defect: the OCR tool passes an explicit
-            # OpenRouter base_url with no key, and auxiliary.vision is
-            # configured with ``api_key: none``; both force provider="custom"
-            # and previously resolved to "none"/"no-key-required" instead of
-            # OPENROUTER_API_KEY.
-            _explicit_key = (explicit_api_key or "").strip()
-            if _explicit_key.lower() in _CUSTOM_KEY_SENTINELS:
-                _explicit_key = ""
-            # When the explicit endpoint is OpenRouter, fall back to
-            # OPENROUTER_API_KEY (not OPENAI_API_KEY) so OpenRouter-custom
-            # calls authenticate correctly. This fixes OCR + describe + any
-            # future openrouter-custom call in one place without changing
-            # behaviour for other providers (OPENAI_API_KEY still wins for
-            # non-OpenRouter custom hosts).
-            _is_openrouter_host = base_url_host_matches(custom_base, "openrouter.ai")
-            _env_key = ""
-            if _is_openrouter_host:
-                _env_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-            if not _env_key:
-                _env_key = os.getenv("OPENAI_API_KEY", "").strip()
             custom_key = (
-                _explicit_key
-                or _env_key
+                (explicit_api_key or "").strip()
+                or os.getenv("OPENAI_API_KEY", "").strip()
                 or "no-key-required"  # local servers don't need auth
             )
             if not custom_base:
@@ -3655,6 +3623,9 @@ def resolve_provider_client(
                         extra["default_headers"] = dict(_ph_custom.default_headers)
                 except Exception:
                     pass
+            _merged_custom = _apply_user_default_headers(extra.get("default_headers"))
+            if _merged_custom:
+                extra["default_headers"] = _merged_custom
             client = OpenAI(api_key=custom_key, base_url=_clean_base, **extra)
             client = _wrap_if_needed(client, final_model, custom_base, custom_key)
             return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
@@ -3696,24 +3667,9 @@ def resolve_provider_client(
         if custom_entry:
             custom_base = custom_entry.get("base_url", "").strip()
             custom_key = custom_entry.get("api_key", "").strip()
-            # Treat config sentinels ("none"/"null"/"no-key-required") as
-            # *unset* so the key_env / openrouter env-var fallbacks can win.
-            # A literal ``api_key: none`` in a named-provider config (parsed by
-            # YAML as the string "none", NOT null) must never be sent as the
-            # bearer token — it 401s. Mirrors the explicit_base_url branch.
-            if custom_key.lower() in _CUSTOM_KEY_SENTINELS:
-                custom_key = ""
             custom_key_env = (custom_entry.get("key_env") or custom_entry.get("api_key_env") or "").strip()
             if not custom_key and custom_key_env:
                 custom_key = os.getenv(custom_key_env, "").strip()
-            # Symmetry with the explicit_base_url branch: when the named
-            # provider points at OpenRouter and no key resolved (sentinel
-            # stripped, no key_env), fall back to OPENROUTER_API_KEY so
-            # OpenRouter-custom named providers authenticate correctly. Does
-            # NOT touch non-OpenRouter named providers or local/keyless
-            # servers (their key stays empty → "no-key-required").
-            if not custom_key and base_url_host_matches(custom_base, "openrouter.ai"):
-                custom_key = os.getenv("OPENROUTER_API_KEY", "").strip()
             custom_key = custom_key or "no-key-required"
             if custom_key == "no-key-required":
                 logger.warning(
@@ -3746,6 +3702,9 @@ def resolve_provider_client(
                     raw_base_for_wrap = custom_base
                 _clean_base2, _dq2 = _extract_url_query_params(openai_base)
                 _extra2 = {"default_query": _dq2} if _dq2 else {}
+                _headers2 = _apply_user_default_headers(_extra2.get("default_headers"))
+                if _headers2:
+                    _extra2["default_headers"] = _headers2
                 logger.debug(
                     "resolve_provider_client: named custom provider %r (%s, api_mode=%s)",
                     provider, final_model, entry_api_mode or "chat_completions")
@@ -3768,6 +3727,9 @@ def resolve_provider_client(
                         _fallback_base = _to_openai_base_url(custom_base)
                         _fb_clean, _fb_dq = _extract_url_query_params(_fallback_base)
                         _fb_extra = {"default_query": _fb_dq} if _fb_dq else {}
+                        _fb_headers = _apply_user_default_headers(_fb_extra.get("default_headers"))
+                        if _fb_headers:
+                            _fb_extra["default_headers"] = _fb_headers
                         client = OpenAI(api_key=custom_key, base_url=_fb_clean, **_fb_extra)
                         return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
                                 else (client, final_model))
@@ -3916,6 +3878,9 @@ def resolve_provider_client(
                     headers.update(_ph_main.default_headers)
             except Exception:
                 pass
+        _merged_main = _apply_user_default_headers(headers)
+        if _merged_main:
+            headers = _merged_main
         client = OpenAI(api_key=api_key, base_url=base_url,
                         **({"default_headers": headers} if headers else {}))
 
@@ -4982,24 +4947,8 @@ def _build_call_kwargs(
     timeout: float = 30.0,
     extra_body: Optional[dict] = None,
     base_url: Optional[str] = None,
-    or_title: Optional[str] = None,
 ) -> dict:
-    """Build kwargs for .chat.completions.create() with model/provider adjustments.
-
-    Why: OpenRouter attributes traffic to a dashboard app via the ``X-Title``
-    header. The shared client factory stamps a single ``X-Title: "Hermes Agent"``
-    default, so every component lands under one app. Passing ``or_title`` here
-    threads a PER-COMPONENT title as a per-call ``extra_headers`` override
-    (the OpenAI SDK merges ``extra_headers`` over the client ``default_headers``
-    for that one request), splitting components into distinct dashboard apps
-    without reconstructing clients or changing any behavior.
-    What: Adds ``extra_headers={"X-Title": or_title}`` to the create() kwargs
-    when ``or_title`` is set; otherwise leaves headers untouched (the client's
-    default ``X-Title`` attribution still applies — never "unknown").
-    Test: Call with ``or_title="Hermes-MoA"`` and assert the returned kwargs
-    contain ``extra_headers == {"X-Title": "Hermes-MoA"}``; call without it and
-    assert ``"extra_headers"`` is absent.
-    """
+    """Build kwargs for .chat.completions.create() with model/provider adjustments."""
     kwargs: Dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -5073,12 +5022,6 @@ def _build_call_kwargs(
     if merged_extra:
         kwargs["extra_body"] = merged_extra
 
-    # Per-component OpenRouter attribution: override only the X-Title for this
-    # one request. extra_headers is merged OVER the client default_headers by
-    # the OpenAI SDK, so HTTP-Referer and every other base header are preserved.
-    if or_title:
-        kwargs["extra_headers"] = {"X-Title": or_title}
-
     return kwargs
 
 
@@ -5127,7 +5070,6 @@ def call_llm(
     tools: list = None,
     timeout: float = None,
     extra_body: dict = None,
-    or_title: str = None,
 ) -> Any:
     """Centralized synchronous LLM call.
 
@@ -5146,8 +5088,6 @@ def call_llm(
         tools: Tool definitions (for function calling).
         timeout: Request timeout in seconds (None = read from auxiliary.{task}.timeout config).
         extra_body: Additional request body fields.
-        or_title: Per-component OpenRouter ``X-Title`` for dashboard attribution
-              (e.g. "Hermes-Aux-Text"). None keeps the client default "Hermes Agent".
 
     Returns:
         Response object with .choices[0].message.content
@@ -5155,11 +5095,6 @@ def call_llm(
     Raises:
         RuntimeError: If no provider is configured.
     """
-    # Derive a per-component OpenRouter X-Title from the task when the caller
-    # did not pass one explicitly (explicit or_title from native OCR / MoA /
-    # main chat always wins). Pure attribution — no behavior change.
-    if or_title is None:
-        or_title = _default_or_title_for_task(task)
     resolved_provider, resolved_model, resolved_base_url, resolved_api_key, resolved_api_mode = _resolve_task_provider_model(
         task, provider, model, base_url, api_key)
     effective_extra_body = _get_task_extra_body(task)
@@ -5239,7 +5174,7 @@ def call_llm(
         resolved_provider, final_model, messages,
         temperature=temperature, max_tokens=max_tokens,
         tools=tools, timeout=effective_timeout, extra_body=effective_extra_body,
-        base_url=_base_info or resolved_base_url, or_title=or_title)
+        base_url=_base_info or resolved_base_url)
 
     # Convert image blocks for Anthropic-compatible endpoints (e.g. MiniMax)
     _client_base = str(getattr(client, "base_url", "") or "")
@@ -5416,7 +5351,6 @@ def call_llm(
                     tools=tools,
                     effective_timeout=effective_timeout,
                     effective_extra_body=effective_extra_body,
-                    or_title=or_title,
                 )
 
         # ── Same-provider credential-pool recovery ─────────────────────
@@ -5459,7 +5393,6 @@ def call_llm(
                         tools=tools,
                         effective_timeout=effective_timeout,
                         effective_extra_body=effective_extra_body,
-                        or_title=or_title,
                     )
                 except Exception as retry2_err:
                     # The rotated key also hit a quota/auth wall.  Mark it
@@ -5546,8 +5479,7 @@ def call_llm(
                     temperature=temperature, max_tokens=max_tokens,
                     tools=tools, timeout=effective_timeout,
                     extra_body=effective_extra_body,
-                    base_url=str(getattr(fb_client, "base_url", "") or ""),
-                    or_title=or_title)
+                    base_url=str(getattr(fb_client, "base_url", "") or ""))
                 return _validate_llm_response(
                     fb_client.chat.completions.create(**fb_kwargs), task)
             # All fallback layers exhausted — emit a single user-visible
@@ -5642,15 +5574,11 @@ async def async_call_llm(
     tools: list = None,
     timeout: float = None,
     extra_body: dict = None,
-    or_title: str = None,
 ) -> Any:
     """Centralized asynchronous LLM call.
 
     Same as call_llm() but async. See call_llm() for full documentation.
-    or_title threads a per-component OpenRouter ``X-Title`` (e.g. "Hermes-Aux-Vision").
     """
-    if or_title is None:
-        or_title = _default_or_title_for_task(task)
     resolved_provider, resolved_model, resolved_base_url, resolved_api_key, resolved_api_mode = _resolve_task_provider_model(
         task, provider, model, base_url, api_key)
     effective_extra_body = _get_task_extra_body(task)
@@ -5716,7 +5644,7 @@ async def async_call_llm(
         resolved_provider, final_model, messages,
         temperature=temperature, max_tokens=max_tokens,
         tools=tools, timeout=effective_timeout, extra_body=effective_extra_body,
-        base_url=_client_base or resolved_base_url, or_title=or_title)
+        base_url=_client_base or resolved_base_url)
 
     # Convert image blocks for Anthropic-compatible endpoints (e.g. MiniMax)
     if _is_anthropic_compat_endpoint(resolved_provider, _client_base):
@@ -5882,7 +5810,6 @@ async def async_call_llm(
                     tools=tools,
                     effective_timeout=effective_timeout,
                     effective_extra_body=effective_extra_body,
-                    or_title=or_title,
                 )
 
         # ── Same-provider credential-pool recovery (mirrors sync) ─────
@@ -5920,7 +5847,6 @@ async def async_call_llm(
                         tools=tools,
                         effective_timeout=effective_timeout,
                         effective_extra_body=effective_extra_body,
-                        or_title=or_title,
                     )
                 except Exception as retry2_err:
                     if (_is_payment_error(retry2_err) or _is_auth_error(retry2_err)
@@ -5976,8 +5902,7 @@ async def async_call_llm(
                     temperature=temperature, max_tokens=max_tokens,
                     tools=tools, timeout=effective_timeout,
                     extra_body=effective_extra_body,
-                    base_url=str(getattr(fb_client, "base_url", "") or ""),
-                    or_title=or_title)
+                    base_url=str(getattr(fb_client, "base_url", "") or ""))
                 # Convert sync fallback client to async
                 async_fb, async_fb_model = _to_async_client(
                     fb_client, fb_model or "", is_vision=(task == "vision")
