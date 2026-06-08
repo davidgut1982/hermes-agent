@@ -91,7 +91,6 @@ class SessionSource:
     guild_id: Optional[str] = None  # Discord guild / Slack workspace / Matrix server scope
     parent_chat_id: Optional[str] = None  # Parent channel when chat_id refers to a thread
     message_id: Optional[str] = None  # ID of the triggering message (for pin/reply/react)
-    agent_id: Optional[str] = None  # Resolved agent identity (None == default "main")
     
     @property
     def description(self) -> str:
@@ -135,8 +134,6 @@ class SessionSource:
             d["parent_chat_id"] = self.parent_chat_id
         if self.message_id:
             d["message_id"] = self.message_id
-        if self.agent_id:
-            d["agent_id"] = self.agent_id
         return d
 
     @classmethod
@@ -155,7 +152,6 @@ class SessionSource:
             guild_id=data.get("guild_id"),
             parent_chat_id=data.get("parent_chat_id"),
             message_id=data.get("message_id"),
-            agent_id=data.get("agent_id"),
         )
     
 
@@ -444,11 +440,6 @@ class SessionEntry:
     display_name: Optional[str] = None
     platform: Optional[Platform] = None
     chat_type: str = "dm"
-
-    # Agent identity for this session.  Defaults to ``"main"`` so single-agent
-    # installs keep behaving identically; multi-agent installs set it to the
-    # agent_id resolved by the routes table at message-dispatch time.
-    agent_id: str = "main"
     
     # Token tracking
     input_tokens: int = 0
@@ -509,7 +500,6 @@ class SessionEntry:
             "display_name": self.display_name,
             "platform": self.platform.value if self.platform else None,
             "chat_type": self.chat_type,
-            "agent_id": self.agent_id,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cache_read_tokens": self.cache_read_tokens,
@@ -566,7 +556,6 @@ class SessionEntry:
             display_name=data.get("display_name"),
             platform=platform,
             chat_type=data.get("chat_type", "dm"),
-            agent_id=data.get("agent_id", "main"),
             input_tokens=data.get("input_tokens", 0),
             output_tokens=data.get("output_tokens", 0),
             cache_read_tokens=data.get("cache_read_tokens", 0),
@@ -635,15 +624,7 @@ def build_session_key(
       - Without participant identifiers, or when isolation is disabled, messages fall back to one
         shared session per chat.
       - Without identifiers, messages fall back to one session per platform/chat_type.
-
-    Agent identity:
-      - When ``source.agent_id`` is set (via routing in the adapter), the
-        key is prefixed with ``agent:<id>:``.  Unset (the single-agent default)
-        produces ``agent:main:``, preserving every key string generated before
-        the multi-agent feature shipped.
     """
-    agent_id = getattr(source, "agent_id", None) or "main"
-    agent_prefix = f"agent:{agent_id}"
     platform = source.platform.value
     if source.chat_type == "dm":
         dm_chat_id = source.chat_id
@@ -652,11 +633,27 @@ def build_session_key(
 
         if dm_chat_id:
             if source.thread_id:
-                return f"{agent_prefix}:{platform}:dm:{dm_chat_id}:{source.thread_id}"
-            return f"{agent_prefix}:{platform}:dm:{dm_chat_id}"
+                return f"agent:main:{platform}:dm:{dm_chat_id}:{source.thread_id}"
+            return f"agent:main:{platform}:dm:{dm_chat_id}"
+        # No chat_id — fall back to the sender's own identifier before the
+        # bare per-platform sink.  Without this, every DM from every user that
+        # arrives without a chat_id (non-standard adapters / synthetic sources)
+        # collapses into one shared "agent:main:<platform>:dm" session, and a
+        # single cached agent ends up serving multiple people's conversations —
+        # cross-user history bleed.  participant_id keeps DMs isolated per user.
+        dm_participant_id = source.user_id_alt or source.user_id
+        if dm_participant_id and source.platform == Platform.WHATSAPP:
+            dm_participant_id = (
+                canonical_whatsapp_identifier(str(dm_participant_id))
+                or dm_participant_id
+            )
+        if dm_participant_id:
+            if source.thread_id:
+                return f"agent:main:{platform}:dm:{dm_participant_id}:{source.thread_id}"
+            return f"agent:main:{platform}:dm:{dm_participant_id}"
         if source.thread_id:
-            return f"{agent_prefix}:{platform}:dm:{source.thread_id}"
-        return f"{agent_prefix}:{platform}:dm"
+            return f"agent:main:{platform}:dm:{source.thread_id}"
+        return f"agent:main:{platform}:dm"
 
     participant_id = source.user_id_alt or source.user_id
     if participant_id and source.platform == Platform.WHATSAPP:
@@ -664,7 +661,7 @@ def build_session_key(
         # single group member gets two isolated per-user sessions when the
         # bridge reshuffles alias forms.
         participant_id = canonical_whatsapp_identifier(str(participant_id)) or participant_id
-    key_parts = [agent_prefix, platform, source.chat_type]
+    key_parts = ["agent:main", platform, source.chat_type]
 
     if source.chat_id:
         key_parts.append(source.chat_id)
@@ -945,7 +942,6 @@ class SessionStore:
                 display_name=source.chat_name,
                 platform=source.platform,
                 chat_type=source.chat_type,
-                agent_id=source.agent_id or "main",
                 was_auto_reset=was_auto_reset,
                 auto_reset_reason=auto_reset_reason,
                 reset_had_activity=reset_had_activity,
@@ -957,7 +953,6 @@ class SessionStore:
                 "session_id": session_id,
                 "source": source.platform.value,
                 "user_id": source.user_id,
-                "agent_id": source.agent_id or "main",
             }
 
         # SQLite operations outside the lock
@@ -1175,7 +1170,6 @@ class SessionStore:
                 display_name=display_name if display_name is not None else old_entry.display_name,
                 platform=old_entry.platform,
                 chat_type=old_entry.chat_type,
-                agent_id=old_entry.agent_id or "main",
                 is_fresh_reset=True,
             )
 
@@ -1185,7 +1179,6 @@ class SessionStore:
                 "session_id": session_id,
                 "source": old_entry.platform.value if old_entry.platform else "unknown",
                 "user_id": old_entry.origin.user_id if old_entry.origin else None,
-                "agent_id": old_entry.agent_id or "main",
             }
 
         if self._db and db_end_session_id:
@@ -1238,7 +1231,6 @@ class SessionStore:
                 display_name=old_entry.display_name,
                 platform=old_entry.platform,
                 chat_type=old_entry.chat_type,
-                agent_id=old_entry.agent_id or "main",
             )
 
             self._entries[session_key] = new_entry
