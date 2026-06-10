@@ -118,7 +118,7 @@ function ToolGlyph({ icon, status }: { icon?: string; status?: ToolStatus }) {
   const node = status ? (
     statusGlyph(status)
   ) : icon ? (
-    <Codicon className="text-(--ui-text-tertiary)" name={icon} size="0.875rem" />
+    <Codicon className="text-(--ui-text-tertiary)" filled name={icon} size="0.875rem" />
   ) : null
 
   return node ? <span className={TOOL_HEADER_GLYPH_WRAP_CLASS}>{node}</span> : null
