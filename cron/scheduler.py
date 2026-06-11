@@ -19,7 +19,6 @@ import shutil
 import subprocess
 import sys
 import threading
-from contextlib import contextmanager
 
 # fcntl is Unix-only; on Windows use msvcrt for file locking
 try:
@@ -166,7 +165,7 @@ _parallel_pool_max_workers: Optional[int] = None
 _running_job_ids: set = set()
 _running_lock = threading.Lock()
 
-# Sequential (env/context-mutating) cron jobs — workdir/profile jobs that touch
+# Sequential (env-mutating) cron jobs — workdir jobs that touch
 # process-global runtime state — must run one at a time, but must NOT block the
 # ticker thread.  A persistent single-thread executor preserves ordering across
 # ticks while keeping dispatch fire-and-forget, the same as the parallel pool.
@@ -190,10 +189,10 @@ def _get_parallel_pool(max_workers: Optional[int]) -> concurrent.futures.ThreadP
 def _get_sequential_pool() -> concurrent.futures.ThreadPoolExecutor:
     """Return (or create) the persistent single-thread sequential pool.
 
-    A single worker guarantees env/context-mutating jobs never overlap, even
+    A single worker guarantees env-mutating jobs never overlap, even
     across ticks: a job queued by a newer tick waits for the previous tick's
-    sequential jobs to finish rather than corrupting their os.environ /
-    profile state.
+    sequential jobs to finish rather than corrupting their os.environ
+    state.
     """
     global _sequential_pool
     if _sequential_pool is None:
@@ -233,71 +232,6 @@ def _get_lock_paths() -> tuple[Path, Path]:
     hermes_home = _get_hermes_home()
     lock_dir = hermes_home / "cron"
     return lock_dir, lock_dir / ".tick.lock"
-
-
-@contextmanager
-def _job_profile_context(job_id: str, profile: Optional[str]):
-    """Temporarily run a job under a specific Hermes profile.
-
-    Cron jobs are stored and scheduled by the profile running the scheduler, but
-    an individual job can opt into a different runtime profile. While active,
-    the scheduler's test/override hook and a context-local Hermes home override
-    both point at the resolved profile directory so _get_hermes_home(),
-    .env/config loading, script resolution, AIAgent construction, and downstream
-    get_hermes_home() callers agree on the same home.
-
-    Some existing provider/config paths still load profile .env values through
-    os.environ, so profile jobs also snapshot and restore the process
-    environment on exit. tick() runs profile jobs sequentially to keep that
-    temporary mutation isolated from other scheduled jobs.
-    """
-    raw_profile = str(profile or "").strip()
-    if not raw_profile:
-        yield None
-        return
-
-    global _hermes_home
-    prior_override = _hermes_home
-    env_snapshot = os.environ.copy()
-
-    from hermes_cli.profiles import normalize_profile_name, resolve_profile_env
-    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
-
-    normalized_profile = normalize_profile_name(raw_profile)
-    try:
-        profile_home = Path(resolve_profile_env(normalized_profile)).resolve()
-    except (FileNotFoundError, ValueError) as exc:
-        logger.warning(
-            "Job '%s': configured profile %r no longer valid (%s) — "
-            "falling back to scheduler default",
-            job_id, raw_profile, exc,
-        )
-        yield None
-        return
-
-    override_token = None
-    try:
-        override_token = set_hermes_home_override(profile_home)
-        _hermes_home = profile_home
-        logger.info(
-            "Job '%s': using Hermes profile '%s' (%s)",
-            job_id,
-            normalized_profile,
-            profile_home,
-        )
-        yield normalized_profile
-    finally:
-        _hermes_home = prior_override
-        if override_token is not None:
-            reset_hermes_home_override(override_token)
-        # Delta-based restore: remove added keys, restore changed keys.
-        # Avoids a brief window where other threads see an empty env.
-        added = set(os.environ.keys()) - set(env_snapshot.keys())
-        for k in added:
-            os.environ.pop(k, None)
-        for k, v in env_snapshot.items():
-            if os.environ.get(k) != v:
-                os.environ[k] = v
 
 
 def _resolve_origin(job: dict) -> Optional[dict]:
@@ -497,15 +431,12 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
     if deliver_value == "local":
         return None
 
-    _agent_id = job.get("agent_id")
-
     if deliver_value == "origin":
         if origin:
             return {
                 "platform": origin["platform"],
                 "chat_id": str(origin["chat_id"]),
                 "thread_id": origin.get("thread_id"),
-                "agent_id": _agent_id or origin.get("agent_id"),
             }
         # Origin missing (e.g. job created via API/script) — try each
         # platform's home channel as a fallback instead of silently dropping.
@@ -521,7 +452,6 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
                     "platform": platform_name,
                     "chat_id": chat_id,
                     "thread_id": _get_home_target_thread_id(platform_name),
-                    "agent_id": _agent_id,
                 }
         return None
 
@@ -556,7 +486,6 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
             "platform": platform_name,
             "chat_id": chat_id,
             "thread_id": thread_id,
-            "agent_id": _agent_id,
         }
 
     platform_name = deliver_value
@@ -565,7 +494,6 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
             "platform": platform_name,
             "chat_id": str(origin["chat_id"]),
             "thread_id": origin.get("thread_id"),
-            "agent_id": _agent_id,
         }
 
     if not _is_known_delivery_platform(platform_name):
@@ -578,7 +506,6 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
         "platform": platform_name,
         "chat_id": chat_id,
         "thread_id": _get_home_target_thread_id(platform_name),
-        "agent_id": _agent_id,
     }
 
 
@@ -1039,17 +966,6 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
     else:
         argv = [sys.executable, str(path)]
 
-    run_env = os.environ.copy()
-    run_env["HERMES_HOME"] = str(_get_hermes_home())
-    try:
-        from hermes_constants import get_subprocess_home
-
-        profile_home = get_subprocess_home()
-        if profile_home:
-            run_env["HOME"] = profile_home
-    except Exception:
-        pass
-
     try:
         popen_kwargs = {"creationflags": windows_hide_flags()} if sys.platform == "win32" else {}
         result = subprocess.run(
@@ -1058,7 +974,6 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
             text=True,
             timeout=script_timeout,
             cwd=str(path.parent),
-            env=run_env,
             **popen_kwargs,
         )
         stdout = (result.stdout or "").strip()
@@ -1167,7 +1082,7 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
     # Inject output from referenced cron jobs as context.
     context_from = job.get("context_from")
     if context_from:
-        from cron.jobs import _get_output_dir
+        from cron.jobs import OUTPUT_DIR
         if isinstance(context_from, str):
             context_from = [context_from]
         for source_job_id in context_from:
@@ -1182,7 +1097,7 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
                 )
                 continue
             try:
-                job_output_dir = _get_output_dir() / source_job_id
+                job_output_dir = OUTPUT_DIR / source_job_id
                 if not job_output_dir.exists():
                     continue  # silent skip — no output yet
                 output_files = sorted(
@@ -1388,13 +1303,6 @@ def _scan_assembled_cron_prompt(
 
 
 def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
-    """Execute a single cron job, applying any per-job profile override."""
-    job_id = job["id"]
-    with _job_profile_context(job_id, job.get("profile")):
-        return _run_job_impl(job)
-
-
-def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     """
     Execute a single cron job.
     
@@ -1631,9 +1539,8 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     #     .cursorrules from the job's project dir, AND
     #   - the terminal, file, and code-exec tools run commands from there.
     #
-    # tick() serializes jobs that mutate process-global runtime state (workdir
-    # and/or profile jobs) outside the parallel pool, so mutating
-    # os.environ["TERMINAL_CWD"] here is safe for those jobs. For workdir-less
+    # tick() serializes workdir-jobs outside the parallel pool, so mutating
+    # os.environ["TERMINAL_CWD"] here is safe for those jobs.  For workdir-less
     # jobs we leave TERMINAL_CWD untouched — preserves the original behaviour
     # (skip_context_files=True, tools use whatever cwd the scheduler has).
     _job_workdir = (job.get("workdir") or "").strip() or None
@@ -2059,22 +1966,18 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
             logger.debug("Job '%s': failed to reap stale auxiliary clients: %s", job_id, e)
 
 
-def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True, registry=None) -> int:
+def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True) -> int:
     """
     Check and run all due jobs.
-
+    
     Uses a file lock so only one tick runs at a time, even if the gateway's
     in-process ticker and a standalone daemon or manual tick overlap.
-
+    
     Args:
         verbose: Whether to print status messages
         adapters: Optional dict mapping Platform → live adapter (from gateway)
         loop: Optional asyncio event loop (from gateway) for live adapter sends
-        registry: Optional agent registry (Dict[str, AgentProfile]) for multi-
-                  agent gateway mode. When provided, jobs are loaded from ALL
-                  agent profiles and each job runs under its profile's context.
-                  ``None`` keeps single-agent behaviour.
-
+    
     Returns:
         Number of jobs executed (0 if another tick is already running)
     """
@@ -2096,35 +1999,22 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True, regi
         return 0
 
     try:
-        if registry is not None:
-            from cron.jobs import get_all_due_jobs
-            all_jobs = get_all_due_jobs(registry)
-        else:
-            all_jobs = get_due_jobs()
+        due_jobs = get_due_jobs()
 
-        if verbose and not all_jobs:
+        if verbose and not due_jobs:
             logger.info("%s - No jobs due", _hermes_now().strftime('%H:%M:%S'))
             return 0
 
         if verbose:
-            logger.info("%s - %s job(s) due", _hermes_now().strftime('%H:%M:%S'), len(all_jobs))
+            logger.info("%s - %s job(s) due", _hermes_now().strftime('%H:%M:%S'), len(due_jobs))
 
         # Advance next_run_at for all recurring jobs FIRST, under the file lock,
         # before any execution begins.  This preserves at-most-once semantics.
         # For parallel jobs that are already running, advance_next_run keeps
         # bumping next_run_at forward so the grace window never expires.
         # mark_job_run() overwrites next_run_at on completion.
-        #
-        # For multi-agent mode, advance_next_run must run in the job's profile
-        # context so it writes back to the correct jobs.json.
-        for job in all_jobs:
-            _job_agent_id = job.get("agent_id", "main")
-            if registry and _job_agent_id in registry:
-                from agent.profile import use_profile
-                with use_profile(registry[_job_agent_id]):
-                    advance_next_run(job["id"])
-            else:
-                advance_next_run(job["id"])
+        for job in due_jobs:
+            advance_next_run(job["id"])
 
         # Resolve max parallel workers: env var > config.yaml > unbounded.
         # Set HERMES_CRON_MAX_PARALLEL=1 to restore old serial behaviour.
@@ -2149,29 +2039,16 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True, regi
         if verbose:
             logger.info(
                 "Running %d job(s) in parallel (max_workers=%s)",
-                len(all_jobs),
+                len(due_jobs),
                 _max_workers if _max_workers else "unbounded",
             )
 
         def _process_job(job: dict) -> bool:
             """Run one due job end-to-end: execute, save, deliver, mark."""
-            _job_agent_id = job.get("agent_id", "main")
-            _profile = registry.get(_job_agent_id) if registry else None
             try:
-                if _profile is not None:
-                    from agent.profile import use_profile
-                    with use_profile(_profile):
-                        success, output, final_response, error = run_job(job)
-                else:
-                    success, output, final_response, error = run_job(job)
+                success, output, final_response, error = run_job(job)
 
-                # Save output under the job's profile directory
-                if _profile is not None:
-                    from agent.profile import use_profile
-                    with use_profile(_profile):
-                        output_file = save_job_output(job["id"], output)
-                else:
-                    output_file = save_job_output(job["id"], output)
+                output_file = save_job_output(job["id"], output)
                 if verbose:
                     logger.info("Output saved to: %s", output_file)
 
@@ -2190,12 +2067,7 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True, regi
                 delivery_error = None
                 if should_deliver:
                     try:
-                        if _profile is not None:
-                            from agent.profile import use_profile
-                            with use_profile(_profile):
-                                delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
-                        else:
-                            delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
+                        delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
                     except Exception as de:
                         delivery_error = str(de)
                         logger.error("Delivery failed for job %s: %s", job["id"], de)
@@ -2207,43 +2079,20 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True, regi
                     success = False
                     error = "Agent completed but produced empty response (model error, timeout, or misconfiguration)"
 
-                # mark_job_run must write back to the correct profile's jobs.json
-                if _profile is not None:
-                    from agent.profile import use_profile
-                    with use_profile(_profile):
-                        mark_job_run(job["id"], success, error, delivery_error=delivery_error)
-                else:
-                    mark_job_run(job["id"], success, error, delivery_error=delivery_error)
+                mark_job_run(job["id"], success, error, delivery_error=delivery_error)
                 return True
 
             except Exception as e:
                 logger.error("Error processing job %s: %s", job['id'], e)
-                try:
-                    if _profile is not None:
-                        from agent.profile import use_profile
-                        with use_profile(_profile):
-                            mark_job_run(job["id"], False, str(e))
-                    else:
-                        mark_job_run(job["id"], False, str(e))
-                except Exception:
-                    pass
+                mark_job_run(job["id"], False, str(e))
                 return False
 
-        # Partition due jobs: jobs with a per-job workdir and/or profile touch
-        # process-global runtime state inside run_job. Workdir jobs temporarily
-        # set os.environ["TERMINAL_CWD"]; profile jobs use a context-local
-        # Hermes home override, scheduler _hermes_home hook, and temporary
-        # profile .env load into os.environ with snapshot/restore. They MUST run
-        # sequentially to avoid corrupting each other. Jobs without either field
-        # stay parallel-safe.
-        sequential_jobs = [
-            j for j in all_jobs
-            if (j.get("workdir") or "").strip() or (j.get("profile") or "").strip()
-        ]
-        parallel_jobs = [
-            j for j in all_jobs
-            if not ((j.get("workdir") or "").strip() or (j.get("profile") or "").strip())
-        ]
+        # Partition due jobs: those with a per-job workdir mutate
+        # os.environ["TERMINAL_CWD"] inside run_job, which is process-global —
+        # so they MUST run sequentially to avoid corrupting each other.  Jobs
+        # without a workdir leave env untouched and stay parallel-safe.
+        sequential_jobs = [j for j in due_jobs if (j.get("workdir") or "").strip()]
+        parallel_jobs = [j for j in due_jobs if not (j.get("workdir") or "").strip()]
 
         _results: list = []
         _all_futures: list = []
@@ -2272,9 +2121,9 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True, regi
 
             return pool.submit(_run_and_release)
 
-        # Sequential pass for env/context-mutating (workdir/profile) jobs.
+        # Sequential pass for env-mutating (workdir) jobs.
         # Queued to a persistent single-thread pool so they run one at a time
-        # WITHOUT blocking the ticker thread — a long workdir/profile job no
+        # WITHOUT blocking the ticker thread — a long workdir job no
         # longer starves the rest of the schedule (same fix as the parallel
         # pass, just serialized).  The in-flight guard prevents a still-running
         # job from being re-queued on the next tick.
