@@ -1120,6 +1120,75 @@ def _query_ollama_api_show(model: str, base_url: str, api_key: str = "") -> Opti
     return None
 
 
+def query_ollama_loaded_context(
+    model: str, base_url: str, api_key: str = "", *, timeout: float = 3.0
+) -> Optional[int]:
+    """Return the model's ACTUALLY-LOADED context window from Ollama ``/api/ps``.
+
+    Why: ``query_ollama_num_ctx`` (``/api/show``) reports the GGUF *training max*
+    or the Modelfile ``num_ctx`` — neither is necessarily the window the model is
+    *currently running with*. Ollama's OpenAI-compatible ``/v1`` endpoint ignores
+    per-request ``num_ctx`` (see upstream #43900), so a model can be loaded with a
+    small window (e.g. the 4096/8192 default) while ``/api/show`` advertises 131072.
+    When the assembled request exceeds that loaded window the input is *silently*
+    truncated and the model confabulates. ``/api/ps`` → ``models[].context_length``
+    is the only source for the real, live constraint.
+
+    What: Queries ``GET {server}/api/ps`` and returns the matching model's
+    ``context_length`` (int), or ``None`` when the server is unreachable, not
+    Ollama, the model is not loaded, or the field is absent.
+
+    Test: Mock ``/api/ps`` returning ``{"models":[{"name":"qwen3:8b",
+    "context_length":4096}]}`` and assert ``4096``; mock a connection error and
+    assert ``None``; mock an empty ``models`` list and assert ``None``.
+    """
+    import httpx
+
+    bare_model = _strip_provider_prefix(model)
+    server_url = base_url.rstrip("/")
+    if server_url.endswith("/v1"):
+        server_url = server_url[:-3]
+
+    headers = _auth_headers(api_key)
+
+    try:
+        with httpx.Client(timeout=timeout, headers=headers) as client:
+            resp = client.get(f"{server_url}/api/ps", headers=headers)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+    except Exception:
+        return None
+
+    models = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(models, list) or not models:
+        return None
+
+    def _ctx_of(entry: Dict[str, Any]) -> Optional[int]:
+        value = entry.get("context_length")
+        if isinstance(value, bool):  # bool is an int subclass — reject explicitly
+            return None
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
+        return None
+
+    # Prefer the entry whose name/model matches the requested model; otherwise
+    # fall back to the single loaded model (common single-model Ollama hosts).
+    for entry in models:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or entry.get("model") or "")
+        if name == bare_model or _strip_provider_prefix(name) == bare_model:
+            ctx = _ctx_of(entry)
+            if ctx is not None:
+                return ctx
+
+    if len(models) == 1 and isinstance(models[0], dict):
+        return _ctx_of(models[0])
+
+    return None
+
+
 def _model_name_suggests_kimi(model: str) -> bool:
     """Return True if the model name looks like a Kimi-family model.
 

@@ -1251,6 +1251,31 @@ def run_conversation(
                 if agent.api_mode == "codex_responses":
                     api_kwargs = agent._get_transport().preflight_kwargs(api_kwargs, allow_stream=False)
 
+                # Pre-flight context-truncation guard (local Ollama only). Cloud
+                # providers are untouched. If the assembled request won't fit the
+                # model's actually-loaded Ollama window, the /v1 endpoint silently
+                # truncates the input → garbled output. Make it loud (#43900).
+                _preflight_est_tokens = None
+                try:
+                    from agent.ollama_context_guard import check_preflight as _ctx_check_preflight
+                    _ctx_warning = _ctx_check_preflight(
+                        provider=agent.provider,
+                        base_url=agent.base_url,
+                        api_key=agent.api_key if isinstance(agent.api_key, str) else "",
+                        model=agent.model,
+                        messages=api_kwargs.get("messages") or api_messages,
+                        tools=api_kwargs.get("tools") or None,
+                    )
+                    if _ctx_warning is not None:
+                        _preflight_est_tokens = _ctx_warning.estimated_tokens
+                        agent._context_truncation_warning = _ctx_warning.as_dict()
+                        agent._vprint(
+                            f"{agent.log_prefix}⚠️  {_ctx_warning.message}",
+                            force=True,
+                        )
+                except Exception as _ctx_exc:  # never let the guard break the turn
+                    logger.debug("context-truncation pre-flight guard skipped: %s", _ctx_exc)
+
                 try:
                     from hermes_cli.plugins import (
                         has_hook,
@@ -1692,6 +1717,37 @@ def run_conversation(
 
                     _trunc_content = getattr(_trunc_msg, "content", None) if _trunc_msg else None
                     _trunc_has_tool_calls = bool(getattr(_trunc_msg, "tool_calls", None)) if _trunc_msg else False
+
+                    # ── Post-flight context-truncation guard (local Ollama) ──
+                    # finish_reason='length' + empty/short content on a local
+                    # Ollama target is the INPUT-truncation signature, not an
+                    # output cap. Surface the real cause + remedy instead of
+                    # silently stitching broken partials into fake output. The
+                    # tool-call retry/continuation paths below still run, but the
+                    # truncation cause is now logged and surfaceable (#43900).
+                    try:
+                        from agent.ollama_context_guard import (
+                            check_postflight as _ctx_check_postflight,
+                        )
+                        _post_warning = _ctx_check_postflight(
+                            provider=agent.provider,
+                            base_url=agent.base_url,
+                            api_key=agent.api_key if isinstance(agent.api_key, str) else "",
+                            model=agent.model,
+                            finish_reason=finish_reason,
+                            content=_trunc_content if isinstance(_trunc_content, str) else None,
+                            estimated_tokens=_preflight_est_tokens,
+                        )
+                        if _post_warning is not None and not _trunc_has_tool_calls:
+                            agent._context_truncation_warning = _post_warning.as_dict()
+                            agent._vprint(
+                                f"{agent.log_prefix}⚠️  {_post_warning.message}",
+                                force=True,
+                            )
+                    except Exception as _post_exc:
+                        logger.debug(
+                            "context-truncation post-flight guard skipped: %s", _post_exc
+                        )
 
                     # ── Detect thinking-budget exhaustion ──────────────
                     # When the model spends ALL output tokens on reasoning
