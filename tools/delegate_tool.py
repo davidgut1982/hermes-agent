@@ -29,7 +29,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FuturesTimeoutError,
 )
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from toolsets import TOOLSETS
 
@@ -695,7 +695,7 @@ def _build_child_progress_callback(
     depth: Optional[int] = None,
     model: Optional[str] = None,
     toolsets: Optional[List[str]] = None,
-) -> Optional[callable]:
+) -> Optional[Callable]:
     """Build a callback that relays child agent tool calls to the parent display.
 
     Two display paths:
@@ -746,7 +746,7 @@ def _build_child_progress_callback(
         return kw
 
     def _relay(
-        event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs
+        event_type: str, tool_name: Optional[str] = None, preview: Optional[str] = None, args=None, **kwargs
     ):
         if not parent_cb:
             return
@@ -758,7 +758,7 @@ def _build_child_progress_callback(
             logger.debug("Parent callback failed: %s", e)
 
     def _callback(
-        event_type, tool_name: str = None, preview: str = None, args=None, **kwargs
+        event_type, tool_name: Optional[str] = None, preview: Optional[str] = None, args=None, **kwargs
     ):
         # Lifecycle events emitted by the orchestrator itself — handled
         # before enum normalisation since they are not part of DelegateEvent.
@@ -867,7 +867,7 @@ def _build_child_progress_callback(
             _relay("subagent.progress", preview=f"🔀 {prefix}{summary}")
             _batch.clear()
 
-    _callback._flush = _flush
+    _callback._flush = _flush  # type: ignore[attr-defined]
     return _callback
 
 
@@ -1150,17 +1150,17 @@ def _build_child_agent(
 
     child = AIAgent(
         base_url=effective_base_url,
-        api_key=effective_api_key,
+        api_key=effective_api_key,  # type: ignore[arg-type]
         model=effective_model,
-        provider=effective_provider,
-        api_mode=effective_api_mode,
-        acp_command=effective_acp_command,
+        provider=effective_provider,  # type: ignore[arg-type]
+        api_mode=effective_api_mode,  # type: ignore[arg-type]
+        acp_command=effective_acp_command,  # type: ignore[arg-type]
         acp_args=effective_acp_args,
         max_iterations=max_iterations,
-        max_tokens=getattr(parent_agent, "max_tokens", None),
-        reasoning_config=child_reasoning,
-        prefill_messages=getattr(parent_agent, "prefill_messages", None),
-        fallback_model=parent_fallback,
+        max_tokens=getattr(parent_agent, "max_tokens", None),  # type: ignore[arg-type]
+        reasoning_config=child_reasoning,  # type: ignore[arg-type]
+        prefill_messages=getattr(parent_agent, "prefill_messages", None),  # type: ignore[arg-type]
+        fallback_model=parent_fallback,  # type: ignore[arg-type]
         enabled_toolsets=child_toolsets,
         quiet_mode=True,
         ephemeral_system_prompt=child_prompt,
@@ -1171,33 +1171,33 @@ def _build_child_agent(
         clarify_callback=None,
         thinking_callback=child_thinking_cb,
         session_db=getattr(parent_agent, "_session_db", None),
-        parent_session_id=getattr(parent_agent, "session_id", None),
-        providers_allowed=child_providers_allowed,
-        providers_ignored=child_providers_ignored,
-        providers_order=child_providers_order,
-        provider_sort=child_provider_sort,
+        parent_session_id=getattr(parent_agent, "session_id", None),  # type: ignore[arg-type]
+        providers_allowed=child_providers_allowed,  # type: ignore[arg-type]
+        providers_ignored=child_providers_ignored,  # type: ignore[arg-type]
+        providers_order=child_providers_order,  # type: ignore[arg-type]
+        provider_sort=child_provider_sort,  # type: ignore[arg-type]
         openrouter_min_coding_score=child_openrouter_min_coding_score,
         tool_progress_callback=child_progress_cb,
-        iteration_budget=None,  # fresh budget per subagent
+        iteration_budget=None,  # type: ignore[arg-type]  # fresh budget per subagent
     )
-    child._print_fn = getattr(parent_agent, "_print_fn", None)
+    child._print_fn = getattr(parent_agent, "_print_fn", None)  # type: ignore[attr-defined]
     # Set delegation depth so children can't spawn grandchildren
-    child._delegate_depth = child_depth
+    child._delegate_depth = child_depth  # type: ignore[attr-defined]
     # Stash the post-degrade role for introspection (leaf if the
     # kill switch or depth bounded the caller's requested role).
-    child._delegate_role = effective_role
+    child._delegate_role = effective_role  # type: ignore[attr-defined]
     # Stash subagent identity for nested-delegation event propagation and
     # for _run_single_child / interrupt_subagent to look up by id.
-    child._subagent_id = subagent_id
-    child._parent_subagent_id = parent_subagent_id
-    child._subagent_goal = goal
-    child._parent_turn_id = getattr(parent_agent, "_current_turn_id", "") or ""
+    child._subagent_id = subagent_id  # type: ignore[attr-defined]
+    child._parent_subagent_id = parent_subagent_id  # type: ignore[attr-defined]
+    child._subagent_goal = goal  # type: ignore[attr-defined]
+    child._parent_turn_id = getattr(parent_agent, "_current_turn_id", "") or ""  # type: ignore[attr-defined]
 
     # Share a credential pool with the child when possible so subagents can
     # rotate credentials on rate limits instead of getting pinned to one key.
     child_pool = _resolve_child_credential_pool(effective_provider, parent_agent)
     if child_pool is not None:
-        child._credential_pool = child_pool
+        child._credential_pool = child_pool  # type: ignore[attr-defined]
 
     # Register child for interrupt propagation
     if hasattr(parent_agent, "_active_children"):
@@ -1352,7 +1352,7 @@ def _dump_subagent_timeout_diagnostic(
         _w("## Worker thread stack at timeout")
         if worker_thread is not None and worker_thread.is_alive():
             frames = _sys._current_frames()
-            worker_frame = frames.get(worker_thread.ident)
+            worker_frame = frames.get(worker_thread.ident)  # type: ignore[arg-type]
             if worker_frame is not None:
                 stack = _traceback.format_stack(worker_frame)
                 for frame_line in stack:
@@ -1382,8 +1382,8 @@ def _dump_subagent_timeout_diagnostic(
 def _run_single_child(
     task_index: int,
     goal: str,
-    child=None,
-    parent_agent=None,
+    child: Any = None,
+    parent_agent: Any = None,
     **_kwargs,
 ) -> Dict[str, Any]:
     """
@@ -2146,7 +2146,7 @@ def delegate_task(
     # copied from profile_toolsets above.  This keeps profile_resolved_toolsets
     # stable against any future code that mutates `toolsets` in-place between
     # here and the batch loop — defence-in-depth.
-    profile_resolved_toolsets: Optional[list[str]] = list(toolsets) if resolved_profile_name else None
+    profile_resolved_toolsets: Optional[list[str]] = list(toolsets) if resolved_profile_name else None  # type: ignore[arg-type]
 
     # Normalize to task list
     max_children = _get_max_concurrent_children()
@@ -2319,7 +2319,7 @@ def delegate_task(
             if _profile_prompt:
                 setattr(child, "ephemeral_system_prompt", _profile_prompt)
             # Override with correct parent tool names (before child construction mutated global)
-            child._delegate_saved_tool_names = _parent_tool_names
+            child._delegate_saved_tool_names = _parent_tool_names  # type: ignore[attr-defined]
             children.append((i, t, child))
     finally:
         # Authoritative restore: reset global to parent's tool names after all children built

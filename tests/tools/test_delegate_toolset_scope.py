@@ -789,13 +789,6 @@ class TestProfileToolsetsAliasing:
 # from running when a profile is set).
 # ---------------------------------------------------------------------------
 
-_PROFILES_DOCUMENTS_NEXTCLOUD_ONLY = {
-    "documents": {
-        "toolsets": ["mcp-nextcloud-files"],
-    },
-}
-
-
 def _make_mcp_rich_parent():
     """Parent agent that carries two MCP toolsets: nextcloud-files AND fastmail.
 
