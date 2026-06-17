@@ -10,15 +10,16 @@ Fidelity: FULL prod-reranker fidelity for mode=rerank.
     (read from /opt/hermes/home/config.yaml if parseable, else hardcoded defaults
     matching the known prod config).
   - Uses mode=rerank (pure cosine over the full tool catalog), which is prod's
-    configured mode. This is exactly what EmbeddingReranker.rerank() does in
-    /opt/hermes/build-combined6/tools/tool_search.py for mode=rerank.
+    configured mode. The cosine-rerank logic is replicated here in self-contained
+    pure Python (the EmbeddingReranker class that previously lived in tool_search.py
+    was extracted from that module; this script reimplements the same math so the
+    gate does not depend on hermes internals at import time).
   - embed cache is IN-MEMORY ONLY (no disk read/write) so every gate run
     re-fetches all embeddings from the live endpoint. This is intentional —
     it is what makes the gate "live".
   - Does NOT invoke the prod Python module directly (that would require importing
     hermes internals and dealing with the registry). Instead, it replicates the
-    cosine-rerank math directly, which is self-contained pure Python. The ranking
-    logic is identical to the prod code (verified by reading tool_search.py:782-848).
+    cosine-rerank math directly, which is self-contained pure Python.
 
 Fail-closed: If the nomic endpoint is unreachable, exits NON-ZERO with a clear
 message. The gate MUST NOT pass when the endpoint is down.

@@ -349,9 +349,13 @@ def _bm25_score(query_tokens: List[str], doc_tokens: List[str],
                 k1: float = 1.5, b: float = 0.75) -> float:
     """Standard BM25 score for one query against one document.
 
-    Inlined small implementation rather than adding a dependency. Performance
-    is fine — the catalog is bounded by N (tools) typically < 500, and we
-    score against the in-memory tokens list.
+    Why: Inlined rather than adding a dependency; performance is fine because
+    the catalog is bounded (typically < 500 tools) and all data is in-memory.
+    What: Computes Okapi BM25 using corpus statistics (avg_dl, doc_freq, n_docs)
+    that are pre-computed once per query by the caller (search_catalog).
+    Returns 0.0 for an empty document or when no query token matches.
+    Test: A doc whose tokens exactly match the query tokens should outscore
+    a doc that shares only one token with the query.
     """
     if not doc_tokens:
         return 0.0
