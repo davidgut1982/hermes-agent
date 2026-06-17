@@ -788,7 +788,7 @@ Key config knobs (under `delegation:` in `config.yaml`):
 `orchestrator_enabled`, `subagent_auto_approve`, `inherit_mcp_toolsets`,
 `max_iterations`.
 
-**MCP toolset resolution for named profiles:** When `_build_child_agent()`
+**MCP toolset resolution for named profiles (Phase 1):** When `_build_child_agent()`
 is called with `profile_name` set (i.e. the delegation originated from a
 named `agent_profiles` entry), MCP toolsets in the requested list bypass
 the parent-intersection check and are resolved directly from the global
@@ -797,6 +797,16 @@ orchestrator that restricts its own MCP context (via `no_mcp` in
 `platform_toolsets`) inadvertently starves child agents of domain MCP tools
 they explicitly need.  Non-MCP toolsets still go through parent intersection
 — the security boundary for ad-hoc delegation is preserved.  See #32668.
+
+**Lazy MCP discovery for no_mcp platforms (Phase 2):** When the active
+platform's `platform_toolsets` list includes the `no_mcp` sentinel (e.g.
+`api_server`), eager MCP server discovery is skipped at gateway/CLI startup
+via `mark_eager_discovery_skipped()` in `tools/mcp_tool.py`.  Instead,
+`_build_child_agent()` calls `ensure_mcp_discovered()` just before building
+any child that requests MCP toolsets — a one-shot, thread-safe, failure-
+tolerant trigger that runs `discover_mcp_tools()` exactly once.  Platforms
+that lack `no_mcp` (cli, cron, telegram) are unaffected: eager discovery
+runs at startup as before, and `ensure_mcp_discovered()` is a no-op.
 
 Synchronicity rule: delegate_task is **not** durable. For long-running
 work that must outlive the current turn, use `cronjob` or

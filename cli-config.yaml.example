@@ -755,6 +755,13 @@ platform_toolsets:
 # Composite toolsets:
 #   debugging    - terminal + web + file (for troubleshooting)
 #   safe         - web + vision + moa (no terminal access)
+#
+# Special sentinel (not a real toolset):
+#   no_mcp       - Skips eager MCP server discovery at startup; discovery is
+#                  deferred lazily to the first child-agent build that needs
+#                  MCP toolsets. Use for orchestrator platforms (e.g. api_server)
+#                  to avoid unnecessary MCP connection overhead. Child agents
+#                  spawned via delegate_task still get full MCP access.
 
 # NOTE: The top-level "toolsets" key is deprecated and ignored.
 # Tool configuration is managed per-platform via platform_toolsets above.
