@@ -278,7 +278,7 @@ def setup_isolated_home(enabled: bool) -> Path:
     cfg = {
         "model": {
             "provider": "openrouter",
-            "model": "anthropic/claude-haiku-4.5",
+            "model": "deepseek/deepseek-v4-flash",
         },
         "tools": {
             "tool_search": {
@@ -385,7 +385,7 @@ def run_one_scenario(scenario: Dict[str, Any], enabled: bool, out_dir: Path) -> 
         from run_agent import AIAgent
         agent = AIAgent(
             provider="openrouter",
-            model="anthropic/claude-haiku-4.5",
+            model="deepseek/deepseek-v4-flash",
             enabled_toolsets=None,  # Default = all available toolsets, including the registered mcp-fake tools
             quiet_mode=True,
             save_trajectories=False,
@@ -423,7 +423,7 @@ def run_one_scenario(scenario: Dict[str, Any], enabled: bool, out_dir: Path) -> 
         "scenario_id": scenario["id"],
         "scenario_description": scenario["description"],
         "tool_search_enabled": enabled,
-        "model": "anthropic/claude-haiku-4.5 (via openrouter)",
+        "model": "deepseek/deepseek-v4-flash (via openrouter)",
         "prompt": scenario["prompt"],
         "expected_underlying_tools": scenario.get("expected_underlying_tools", []),
         "n_fake_tools_registered": n_registered,

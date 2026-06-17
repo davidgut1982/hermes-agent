@@ -1,0 +1,23 @@
+{"runtag": "baseline_v3", "metric": "reranker_recall5_ambiguous", "actual": 0.5133, "bar": 0.5, "pass": true, "source": "offline_benchmark_prefix_correct (n=25)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_recall5_ambiguous", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=25)"}
+{"runtag": "baseline_v3", "metric": "reranker_mrr_ambiguous", "actual": 0.776, "bar": 0.0, "pass": true, "source": "offline_benchmark_prefix_correct (n=25)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_mrr_ambiguous", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=25)"}
+{"runtag": "baseline_v3", "metric": "reranker_recall5_lexical", "actual": 1.0, "bar": 0.95, "pass": true, "source": "offline_benchmark_prefix_correct (n=30)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_recall5_lexical", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=30)"}
+{"runtag": "baseline_v3", "metric": "reranker_mrr_lexical", "actual": 1.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_prefix_correct (n=30)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_mrr_lexical", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=30)"}
+{"runtag": "baseline_v3", "metric": "reranker_recall5_semantic", "actual": 0.8488, "bar": 0.84, "pass": true, "source": "offline_benchmark_prefix_correct (n=43)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_recall5_semantic", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=43)"}
+{"runtag": "baseline_v3", "metric": "reranker_mrr_semantic", "actual": 0.6992, "bar": 0.0, "pass": true, "source": "offline_benchmark_prefix_correct (n=43)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_mrr_semantic", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=43)"}
+{"runtag": "baseline_v3", "metric": "reranker_recall5_overall", "actual": 0.8095, "bar": 0.8, "pass": true, "source": "offline_benchmark_prefix_correct (n=98)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_recall5_overall", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=98)"}
+{"runtag": "baseline_v3", "metric": "reranker_mrr_overall", "actual": 0.8109, "bar": 0.0, "pass": true, "source": "offline_benchmark_prefix_correct (n=98)"}
+{"runtag": "baseline_v3", "metric": "reranker_bm25_mrr_overall", "actual": 0.0, "bar": 0.0, "pass": true, "source": "offline_benchmark_bm25_not_in_artifact (n=98)"}
+{"runtag": "baseline_v3", "metric": "livetest_tool_selection_accuracy", "actual": 1.0, "bar": 0.85, "pass": true, "source": "livetest_enabled (n=5)"}
+{"runtag": "baseline_v3", "metric": "livetest_recall5", "actual": 1.0, "bar": 0.8, "pass": true, "source": "livetest_enabled (n=4)"}
+{"runtag": "baseline_v3", "metric": "livetest_mrr", "actual": 1.0, "bar": 0.0, "pass": true, "source": "livetest_enabled (n=4)"}
+{"runtag": "baseline_v3", "metric": "scenario_coverage_fraction", "actual": 0.8333, "bar": 1.0, "pass": false, "source": "labeled_scenarios (covered=25/30, unscored=5)"}
+{"runtag": "baseline_v3", "metric": "scenario_recall5_covered", "actual": 0.98, "bar": 0.8, "pass": true, "source": "labeled_scenarios_covered (n=25)"}
+{"runtag": "baseline_v3", "metric": "profile_pick_accuracy", "actual": 0.0, "bar": 0.9, "pass": false, "source": "NOT_DERIVABLE: 17 profile scenarios, 0 covered by existing outputs. See REQUIRED FUTURE INSTRUMENTATION in score_profiles.py docstring."}
+{"runtag": "baseline_v3", "metric": "profile_pick_coverage_fraction", "actual": 0.0, "bar": 0.5, "pass": false, "source": "labeled_scenarios profile scenarios=17, covered=0"}
