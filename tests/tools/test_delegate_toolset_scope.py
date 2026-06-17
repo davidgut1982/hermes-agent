@@ -36,7 +36,9 @@ class TestToolsetIntersection:
 
     def test_all_requested_toolsets_available_on_parent(self):
         """LLM requests subset of parent tools — all pass through."""
-        parent = SimpleNamespace(enabled_toolsets=["terminal", "file", "web", "browser"])
+        parent = SimpleNamespace(
+            enabled_toolsets=["terminal", "file", "web", "browser"]
+        )
 
         parent_toolsets = set(parent.enabled_toolsets)
         requested = ["terminal", "web"]
@@ -190,6 +192,7 @@ _FAKE_AGENT_PROFILES = {
 # Minimal delegate_task config: no delegation-specific overrides.
 _BARE_DELEGATION_CFG = {}
 
+
 # A structurally valid result dict from _run_single_child (enough fields for
 # the post-run aggregation logic in delegate_task to not raise AttributeError).
 def _make_fake_child_result(task_index: int = 0) -> dict:
@@ -243,7 +246,9 @@ class TestDelegateTaskProfileWiring:
     hardcoded) and MUST pass after the fix (profile_name=resolved name).
     """
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_profile_forwarded_to_build_child_agent(
@@ -290,7 +295,9 @@ class TestDelegateTaskProfileWiring:
             "Profile toolsets must override the toolsets arg so the bypass activates."
         )
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_no_profile_leaves_profile_name_none(
@@ -326,7 +333,9 @@ class TestDelegateTaskProfileWiring:
             f"Expected profile_name=None for unprofiled call, got {kwargs.get('profile_name')!r}"
         )
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_unknown_profile_falls_back_gracefully(

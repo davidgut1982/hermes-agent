@@ -42,15 +42,13 @@ from utils import base_url_hostname, is_truthy_value
 
 
 # Tools that children must never have access to
-DELEGATE_BLOCKED_TOOLS = frozenset(
-    [
-        "delegate_task",  # no recursive delegation
-        "clarify",  # no user interaction
-        "memory",  # no writes to shared MEMORY.md
-        "send_message",  # no cross-platform side effects
-        "execute_code",  # children should reason step-by-step, not write scripts
-    ]
-)
+DELEGATE_BLOCKED_TOOLS = frozenset([
+    "delegate_task",  # no recursive delegation
+    "clarify",  # no user interaction
+    "memory",  # no writes to shared MEMORY.md
+    "send_message",  # no cross-platform side effects
+    "execute_code",  # children should reason step-by-step, not write scripts
+])
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +77,8 @@ def _subagent_auto_deny(command: str, description: str, **kwargs) -> str:
     logger.warning(
         "Subagent auto-denied dangerous command: %s (%s). "
         "Set delegation.subagent_auto_approve: true to allow.",
-        command, description,
+        command,
+        description,
     )
     return "deny"
 
@@ -92,7 +91,8 @@ def _subagent_auto_approve(command: str, description: str, **kwargs) -> str:
     """
     logger.warning(
         "Subagent auto-approved dangerous command: %s (%s)",
-        command, description,
+        command,
+        description,
     )
     return "once"
 
@@ -109,6 +109,7 @@ def _get_subagent_approval_callback():
     if is_truthy_value(val):
         return _subagent_auto_approve
     return _subagent_auto_deny
+
 
 # Build a description fragment listing toolsets available for subagents.
 # Excludes toolsets where ALL tools are blocked, composite/platform toolsets
@@ -447,7 +448,7 @@ def _get_max_spawn_depth() -> int:
         ival = int(val)
     except (TypeError, ValueError):
         logger.warning(
-            "delegation.max_spawn_depth=%r is not a valid integer; " "using default %d",
+            "delegation.max_spawn_depth=%r is not a valid integer; using default %d",
             val,
             MAX_DEPTH,
         )
@@ -1005,8 +1006,7 @@ def _build_child_agent(
         # preserved. See NousResearch/hermes-agent#32668.
         if profile_name:
             child_toolsets = [
-                t for t in toolsets
-                if _is_mcp_toolset_name(t) or t in expanded_parent
+                t for t in toolsets if _is_mcp_toolset_name(t) or t in expanded_parent
             ]
         else:
             child_toolsets = [t for t in toolsets if t in expanded_parent]
@@ -1156,7 +1156,9 @@ def _build_child_agent(
     child_providers_ignored = getattr(parent_agent, "providers_ignored", None)
     child_providers_order = getattr(parent_agent, "providers_order", None)
     child_provider_sort = getattr(parent_agent, "provider_sort", None)
-    child_openrouter_min_coding_score = getattr(parent_agent, "openrouter_min_coding_score", None)
+    child_openrouter_min_coding_score = getattr(
+        parent_agent, "openrouter_min_coding_score", None
+    )
     if override_provider:
         child_providers_allowed = None
         child_providers_ignored = None
@@ -1239,6 +1241,7 @@ def _build_child_agent(
 
     try:
         from hermes_cli.plugins import invoke_hook as _invoke_hook
+
         _invoke_hook(
             "subagent_start",
             parent_session_id=getattr(parent_agent, "session_id", None),
@@ -1293,6 +1296,7 @@ def _dump_subagent_timeout_diagnostic(
         dump_path = logs_dir / f"subagent-timeout-{subagent_id}-{ts}.log"
 
         lines: List[str] = []
+
         def _w(line: str = "") -> None:
             lines.append(line)
 
@@ -1315,9 +1319,17 @@ def _dump_subagent_timeout_diagnostic(
 
         _w("## Child config")
         for attr in (
-            "model", "provider", "api_mode", "base_url", "max_iterations",
-            "quiet_mode", "skip_memory", "skip_context_files", "platform",
-            "_delegate_role", "_delegate_depth",
+            "model",
+            "provider",
+            "api_mode",
+            "base_url",
+            "max_iterations",
+            "quiet_mode",
+            "skip_memory",
+            "skip_context_files",
+            "platform",
+            "_delegate_role",
+            "_delegate_depth",
         ):
             try:
                 val = getattr(child, attr, None)
@@ -1343,11 +1355,17 @@ def _dump_subagent_timeout_diagnostic(
 
         _w("## Prompt / schema sizes")
         try:
-            sys_prompt = getattr(child, "ephemeral_system_prompt", None) \
-                or getattr(child, "system_prompt", None) \
+            sys_prompt = (
+                getattr(child, "ephemeral_system_prompt", None)
+                or getattr(child, "system_prompt", None)
                 or ""
-            _w(f"  system_prompt_bytes: {len(sys_prompt.encode('utf-8')) if isinstance(sys_prompt, str) else 'n/a'}")
-            _w(f"  system_prompt_chars: {len(sys_prompt) if isinstance(sys_prompt, str) else 'n/a'}")
+            )
+            _w(
+                f"  system_prompt_bytes: {len(sys_prompt.encode('utf-8')) if isinstance(sys_prompt, str) else 'n/a'}"
+            )
+            _w(
+                f"  system_prompt_chars: {len(sys_prompt) if isinstance(sys_prompt, str) else 'n/a'}"
+            )
         except Exception as exc:
             _w(f"  system_prompt: <error: {exc}>")
         try:
@@ -1528,23 +1546,21 @@ def _run_single_child(
         _raw_depth = getattr(child, "_delegate_depth", 1)
         _tui_depth = max(0, _raw_depth - 1) if isinstance(_raw_depth, int) else 0
         _parent_sid = getattr(child, "_parent_subagent_id", None)
-        _register_subagent(
-            {
-                "subagent_id": _subagent_id,
-                "parent_id": _parent_sid if isinstance(_parent_sid, str) else None,
-                "depth": _tui_depth,
-                "goal": goal,
-                "model": (
-                    getattr(child, "model", None)
-                    if isinstance(getattr(child, "model", None), str)
-                    else None
-                ),
-                "started_at": time.time(),
-                "status": "running",
-                "tool_count": 0,
-                "agent": child,
-            }
-        )
+        _register_subagent({
+            "subagent_id": _subagent_id,
+            "parent_id": _parent_sid if isinstance(_parent_sid, str) else None,
+            "depth": _tui_depth,
+            "goal": goal,
+            "model": (
+                getattr(child, "model", None)
+                if isinstance(getattr(child, "model", None), str)
+                else None
+            ),
+            "started_at": time.time(),
+            "status": "running",
+            "tool_count": 0,
+            "agent": child,
+        })
 
     try:
         _heartbeat_thread.start()
@@ -1812,9 +1828,9 @@ def _run_single_child(
                     parent_task_id, wall_start, parent_reads_snapshot
                 )
                 if sibling_writes:
-                    mod_paths = sorted(
-                        {p for paths in sibling_writes.values() for p in paths}
-                    )
+                    mod_paths = sorted({
+                        p for paths in sibling_writes.values() for p in paths
+                    })
                     if mod_paths:
                         reminder = (
                             "\n\n[NOTE: subagent modified files the parent "
@@ -1850,14 +1866,12 @@ def _run_single_child(
             )  # all writes since wall_start
         except Exception:
             _files_written_map = {}
-        _files_written = sorted(
-            {
-                p
-                for tid, paths in _files_written_map.items()
-                if tid == child_task_id
-                for p in paths
-            }
-        )[:40]
+        _files_written = sorted({
+            p
+            for tid, paths in _files_written_map.items()
+            if tid == child_task_id
+            for p in paths
+        })[:40]
 
         _output_tail = _extract_output_tail(result, max_entries=8, max_chars=600)
 
@@ -2052,17 +2066,15 @@ def delegate_task(
     depth = getattr(parent_agent, "_delegate_depth", 0)
     max_spawn = _get_max_spawn_depth()
     if depth >= max_spawn:
-        return json.dumps(
-            {
-                "error": (
-                    f"Delegation depth limit reached (depth={depth}, "
-                    f"max_spawn_depth={max_spawn}). Raise "
-                    f"delegation.max_spawn_depth in config.yaml if deeper "
-                    f"nesting is required (no hard ceiling, but each level "
-                    f"multiplies API cost)."
-                )
-            }
-        )
+        return json.dumps({
+            "error": (
+                f"Delegation depth limit reached (depth={depth}, "
+                f"max_spawn_depth={max_spawn}). Raise "
+                f"delegation.max_spawn_depth in config.yaml if deeper "
+                f"nesting is required (no hard ceiling, but each level "
+                f"multiplies API cost)."
+            )
+        })
 
     # Load config
     cfg = _load_config()
@@ -2076,7 +2088,8 @@ def delegate_task(
         logger.debug(
             "delegate_task: ignoring caller-supplied max_iterations=%s; "
             "using delegation.max_iterations=%s from config",
-            max_iterations, default_max_iter,
+            max_iterations,
+            default_max_iter,
         )
     effective_max_iter = default_max_iter
 
@@ -2152,9 +2165,7 @@ def delegate_task(
     # Validate each task has a goal
     for i, task in enumerate(task_list):
         if not isinstance(task, dict):
-            return tool_error(
-                f"Task {i} must be an object, got {type(task).__name__}."
-            )
+            return tool_error(f"Task {i} must be an object, got {type(task).__name__}.")
         if not task.get("goal", "").strip():
             return tool_error(f"Task {i} is missing a 'goal'.")
 
@@ -2186,7 +2197,9 @@ def delegate_task(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
-                toolsets=toolsets if resolved_profile_name else (t.get("toolsets") or toolsets),
+                toolsets=toolsets
+                if resolved_profile_name
+                else (t.get("toolsets") or toolsets),
                 model=creds["model"],
                 max_iterations=effective_max_iter,
                 task_count=n_tasks,
@@ -2316,7 +2329,7 @@ def delegate_task(
                     status = entry.get("status", "?")
                     icon = "✓" if status == "completed" else "✗"
                     remaining = n_tasks - completed_count
-                    completion_line = f"{icon} [{idx+1}/{n_tasks}] {label}  ({dur}s)"
+                    completion_line = f"{icon} [{idx + 1}/{n_tasks}] {label}  ({dur}s)"
                     if spinner_ref:
                         try:
                             spinner_ref.print_above(completion_line)
@@ -2418,15 +2431,25 @@ def delegate_task(
     # fixtures, etc.).
     if _children_cost_total > 0.0:
         try:
-            current = float(getattr(parent_agent, "session_estimated_cost_usd", 0.0) or 0.0)
+            current = float(
+                getattr(parent_agent, "session_estimated_cost_usd", 0.0) or 0.0
+            )
             parent_agent.session_estimated_cost_usd = current + _children_cost_total
             # Upgrade the cost_source so the UI doesn't label a partially-real
             # total as "none" when the parent itself hadn't billed any calls
             # yet (rare but possible when the parent's only action this turn
             # was delegate_task).
-            if getattr(parent_agent, "session_cost_source", "none") in {None, "", "none"}:
+            if getattr(parent_agent, "session_cost_source", "none") in {
+                None,
+                "",
+                "none",
+            }:
                 parent_agent.session_cost_source = "subagent"
-            if getattr(parent_agent, "session_cost_status", "unknown") in {None, "", "unknown"}:
+            if getattr(parent_agent, "session_cost_status", "unknown") in {
+                None,
+                "",
+                "unknown",
+            }:
                 parent_agent.session_cost_status = "estimated"
         except Exception:
             logger.debug("Subagent cost rollup failed", exc_info=True)
@@ -2561,7 +2584,9 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
         # lets providers that store their key in a non-OPENAI_API_KEY env var
         # (e.g. MINIMAX_API_KEY, DASHSCOPE_API_KEY) work without requiring
         # callers to duplicate the key under delegation.api_key.
-        api_key = configured_api_key  # None → inherited from parent in _build_child_agent
+        api_key = (
+            configured_api_key  # None → inherited from parent in _build_child_agent
+        )
 
         # Use the shared URL-based api_mode detector (same path the main agent's
         # runtime resolver uses) so Anthropic-compatible direct endpoints with a
@@ -2589,7 +2614,11 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
 
         # Explicit delegation.api_mode in config always wins. Lets users force
         # a transport for non-standard endpoints the URL heuristic can't detect.
-        if configured_api_mode in {"chat_completions", "codex_responses", "anthropic_messages"}:
+        if configured_api_mode in {
+            "chat_completions",
+            "codex_responses",
+            "anthropic_messages",
+        }:
             api_mode = configured_api_mode
 
         return {
@@ -2614,7 +2643,9 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
     try:
         from hermes_cli.runtime_provider import resolve_runtime_provider
 
-        runtime = resolve_runtime_provider(requested=configured_provider, target_model=configured_model)
+        runtime = resolve_runtime_provider(
+            requested=configured_provider, target_model=configured_model
+        )
     except Exception as exc:
         raise ValueError(
             f"Cannot resolve delegation provider '{configured_provider}': {exc}. "
@@ -2632,7 +2663,9 @@ def _resolve_delegation_credentials(cfg: dict, parent_agent) -> dict:
 
     return {
         "model": configured_model or runtime.get("model") or None,
-        "provider": configured_provider if runtime.get("provider") == _RUNTIME_PROVIDER_CUSTOM else runtime.get("provider"),
+        "provider": configured_provider
+        if runtime.get("provider") == _RUNTIME_PROVIDER_CUSTOM
+        else runtime.get("provider"),
         "base_url": runtime.get("base_url"),
         "api_key": api_key,
         "api_mode": runtime.get("api_mode"),
@@ -2781,11 +2814,11 @@ def _build_top_level_description() -> str:
         "info (file paths, error messages, constraints) via the 'context' field.\n"
         "- If the user is writing in a non-English language, or asked for "
         "output in a specific language / tone / style, say so in 'context' "
-        "(e.g. \"respond in Chinese\", \"return output in Japanese\"). "
+        '(e.g. "respond in Chinese", "return output in Japanese"). '
         "Otherwise subagents default to English and their summaries will "
         "contaminate your final reply with the wrong language.\n"
         "- Subagent summaries are SELF-REPORTS, not verified facts. A subagent "
-        "that claims \"uploaded successfully\" or \"file written\" may be wrong. "
+        'that claims "uploaded successfully" or "file written" may be wrong. '
         "For operations with external side-effects (HTTP POST/PUT, remote "
         "writes, file creation at shared paths, publishing), require the "
         "subagent to return a verifiable handle (URL, ID, absolute path, HTTP "
@@ -2869,8 +2902,12 @@ def _build_dynamic_schema_overrides() -> dict:
     overrides_params["properties"] = {
         k: dict(v) for k, v in DELEGATE_TASK_SCHEMA["parameters"]["properties"].items()
     }
-    overrides_params["properties"]["tasks"]["description"] = _build_tasks_param_description()
-    overrides_params["properties"]["role"]["description"] = _build_role_param_description()
+    overrides_params["properties"]["tasks"]["description"] = (
+        _build_tasks_param_description()
+    )
+    overrides_params["properties"]["role"]["description"] = (
+        _build_role_param_description()
+    )
     return {
         "description": _build_top_level_description(),
         "parameters": overrides_params,
