@@ -1688,6 +1688,24 @@ The delegation provider uses the same credential resolution as CLI/gateway start
 
 **Width and depth:** `max_concurrent_children` caps how many subagents run in parallel per batch (default `3`, floor of 1, no ceiling). Can also be set via the `DELEGATION_MAX_CONCURRENT_CHILDREN` env var. When the model submits a `tasks` array longer than the cap, `delegate_task` returns a tool error explaining the limit rather than silently truncating. `max_spawn_depth` controls the delegation tree depth (floor of 1, no upper ceiling). At the default `1`, delegation is flat: children cannot spawn grandchildren, and passing `role="orchestrator"` silently degrades to `leaf`. Raise to `2` so orchestrator children can spawn leaf grandchildren; `3` for three-level trees, and higher for deeper ones. The agent opts into orchestration per call via `role="orchestrator"`; `orchestrator_enabled: false` forces every child back to leaf regardless. Cost scales multiplicatively — at `max_spawn_depth: 3` with `max_concurrent_children: 3`, the tree can reach 3×3×3 = 27 concurrent leaf agents. See [Subagent Delegation → Depth Limit and Nested Orchestration](features/delegation.md#depth-limit-and-nested-orchestration) for usage patterns.
 
+## Agent Profiles
+
+Pre-declare named agent archetypes at the top level of `config.yaml`. The `profile` parameter of `delegate_task` selects one of these entries to control the subagent's toolsets. Only `toolsets` is read from each profile entry — model and system prompt are not profile-settable here.
+
+```yaml
+agent_profiles:
+  documents:
+    toolsets:
+      - file
+      - mcp-nextcloud-files
+  web-researcher:
+    toolsets:
+      - web
+      - mcp-brave-search
+```
+
+When a named profile is resolved, its `toolsets` list is authoritative for the delegation: MCP toolsets bypass the parent-intersection check (so they reach the child even if the orchestrator restricts its own MCP context), per-task `toolsets` in batch calls are ignored, and the `inherit_mcp_toolsets` setting is skipped. A profile with no `toolsets` key does not activate these behaviors. See [Named Agent Profiles](features/delegation.md#named-agent-profiles) for usage examples.
+
 ## Clarify
 
 Configure the clarification prompt behavior:

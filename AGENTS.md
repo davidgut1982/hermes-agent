@@ -788,15 +788,31 @@ Key config knobs (under `delegation:` in `config.yaml`):
 `orchestrator_enabled`, `subagent_auto_approve`, `inherit_mcp_toolsets`,
 `max_iterations`.
 
-**MCP toolset resolution for named profiles:** When `_build_child_agent()`
-is called with `profile_name` set (i.e. the delegation originated from a
-named `agent_profiles` entry), MCP toolsets in the requested list bypass
-the parent-intersection check and are resolved directly from the global
-`mcp_servers` config.  This prevents a silent failure mode where an
-orchestrator that restricts its own MCP context (via `no_mcp` in
-`platform_toolsets`) inadvertently starves child agents of domain MCP tools
-they explicitly need.  Non-MCP toolsets still go through parent intersection
-— the security boundary for ad-hoc delegation is preserved.  See #32668.
+**Named-profile toolset security (hardening notes):** When `delegate_task`
+is called with a `profile` argument that resolves to an `agent_profiles`
+entry, four security rules apply:
+
+1. **MCP bypass:** MCP toolsets declared by the profile bypass the
+   parent-intersection check and are resolved directly from the global
+   `mcp_servers` config.  This prevents a silent failure mode where an
+   orchestrator restricting its own MCP context (via `no_mcp` in
+   `platform_toolsets`) inadvertently starves child agents of domain MCP
+   tools they explicitly need.  Non-MCP toolsets still go through parent
+   intersection — the security boundary for ad-hoc delegation is
+   preserved.  See #32668.
+2. **`inherit_mcp_toolsets` is ignored for named profiles.**  When
+   `profile_name` is set, `_preserve_parent_mcp_toolsets()` is skipped so
+   the parent's MCP context cannot bleed into profile-scoped children.
+   The profile's `toolsets` list is the single authoritative source.
+3. **Batch injection blocked.** In batch mode (`tasks=[…]`), per-task
+   `toolsets` entries are ignored when a profile is resolved.  Using them
+   would let the model name a valid profile (activating the MCP bypass)
+   while injecting arbitrary toolsets the profile never declared — a
+   privilege-escalation vector.  See #32727.
+4. **No-toolsets guard.** A profile whose `toolsets` key is absent or
+   empty does NOT activate the MCP bypass.  The bypass is only armed when
+   the profile declares a non-empty toolset list; otherwise `delegate_task`
+   falls back to the normal intersection path and logs a warning.
 
 Synchronicity rule: delegate_task is **not** durable. For long-running
 work that must outlive the current turn, use `cronjob` or

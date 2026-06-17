@@ -129,6 +129,38 @@ When you provide a `tasks` array, subagents run in **parallel** using a thread p
 
 Single-task delegation runs directly without thread pool overhead.
 
+## Named Agent Profiles
+
+The `profile` parameter lets you delegate to a pre-declared agent archetype defined in `config.yaml` under `agent_profiles`. The profile specifies which toolsets the subagent receives, including MCP toolsets that would otherwise be unavailable when the orchestrator runs with a restricted MCP context.
+
+```yaml
+# In ~/.hermes/config.yaml
+agent_profiles:
+  documents:
+    toolsets:
+      - file
+      - mcp-nextcloud-files
+  web-researcher:
+    toolsets:
+      - web
+      - mcp-brave-search
+```
+
+```python
+# Invoke a named profile — the profile's toolsets are authoritative
+delegate_task(
+    goal="Summarise the project docs in ~/Documents",
+    profile="documents"
+)
+```
+
+**Security rules that apply when a profile is set:**
+
+- **Profile toolsets are authoritative.** In batch mode (`tasks=[…]`), per-task `toolsets` entries are ignored — the profile's declared list applies to every task in the batch.
+- **MCP servers bypass the parent-intersection check.** MCP toolsets declared by the profile resolve directly from the global `mcp_servers` config, so they reach child agents even when the orchestrating agent has `no_mcp` in its own context.
+- **`inherit_mcp_toolsets` is skipped.** The parent's MCP context does not bleed into the profile-scoped child; the profile is the single source of truth.
+- **Profiles with no toolsets do not activate the bypass.** If a profile's `toolsets` key is absent or empty, `delegate_task` falls back to the normal toolset-intersection path.
+
 ## Model Override
 
 You can configure a different model for subagents via `config.yaml` — useful for delegating simple tasks to cheaper/faster models:
