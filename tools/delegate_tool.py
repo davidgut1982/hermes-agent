@@ -2092,7 +2092,7 @@ def delegate_task(
 
     # Resolve named agent_profile, if one was requested.
     # When ``profile`` is set the caller wants a pre-declared agent archetype
-    # (toolsets, model, system_prompt) from the top-level ``agent_profiles``
+    # (toolsets) from the top-level ``agent_profiles``
     # config section.  We extract the toolsets from the profile here so the
     # rest of the function can treat them as the effective toolset list.
     # ``resolved_profile_name`` stays None when no profile was requested so
@@ -2672,7 +2672,7 @@ def _load_agent_profiles() -> dict:
     Why: agent_profiles live at the root of config.yaml (not under
     ``delegation``), so _load_config() cannot see them.  This helper
     reads the full config and returns the profiles dict so delegate_task()
-    can resolve a named profile to its declared toolsets/model.
+    can resolve a named profile to its declared toolsets.
 
     What: Returns cfg["agent_profiles"] (a dict of name → profile dict),
     or an empty dict when the key is absent or config loading fails.
