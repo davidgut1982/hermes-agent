@@ -2186,7 +2186,7 @@ def delegate_task(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
-                toolsets=t.get("toolsets") or toolsets,
+                toolsets=toolsets if resolved_profile_name else (t.get("toolsets") or toolsets),
                 model=creds["model"],
                 max_iterations=effective_max_iter,
                 task_count=n_tasks,
@@ -2994,9 +2994,9 @@ DELEGATE_TASK_SCHEMA = {
             "profile": {
                 "type": "string",
                 "description": (
-                    "Named agent_profiles entry whose toolsets (and optionally model "
-                    "and system prompt) the sub-agent should use. When set, the "
-                    "profile's declared MCP toolsets are forwarded to the child even "
+                    "Named agent_profiles entry whose toolsets the sub-agent should "
+                    "use. When set, the profile's declared MCP toolsets are forwarded "
+                    "to the child even "
                     "when the orchestrator runs under a no_mcp platform_toolset that "
                     "has no MCP servers of its own. Leave unset to use ad-hoc "
                     "toolsets or inherit from the parent. Example: 'documents'."
