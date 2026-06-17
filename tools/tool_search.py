@@ -345,8 +345,7 @@ def build_catalog(tool_defs: List[Dict[str, Any]]) -> List[CatalogEntry]:
 
 
 def _bm25_score(query_tokens: List[str], doc_tokens: List[str],
-                doc_lengths: List[int], avg_dl: float,
-                doc_freq: Dict[str, int], n_docs: int,
+                avg_dl: float, doc_freq: Dict[str, int], n_docs: int,
                 k1: float = 1.5, b: float = 0.75) -> float:
     """Standard BM25 score for one query against one document.
 
@@ -402,8 +401,7 @@ def search_catalog(catalog: List[CatalogEntry], query: str, limit: int = 5) -> L
 
     scored: List[Tuple[float, CatalogEntry]] = []
     for entry in catalog:
-        s = _bm25_score(query_tokens, entry._tokens, doc_lengths, avg_dl,
-                        doc_freq, n_docs)
+        s = _bm25_score(query_tokens, entry._tokens, avg_dl, doc_freq, n_docs)
         if s > 0:
             scored.append((s, entry))
 
