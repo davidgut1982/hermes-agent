@@ -46,7 +46,7 @@ import tempfile
 import time
 import threading
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # NOTE: `from openai import OpenAI` is deliberately NOT at module top — the
 # SDK pulls ~240 ms of imports. We expose `OpenAI` as a thin proxy object
@@ -206,7 +206,7 @@ from utils import (
     base_url_host_matches,
     base_url_hostname,
     is_truthy_value,
-    model_forces_max_completion_tokens,
+    model_forces_max_completion_tokens,  # type: ignore[reportAttributeAccessIssue]
 )
 
 
@@ -354,69 +354,69 @@ class AIAgent:
 
     def __init__(
         self,
-        base_url: str = None,
-        api_key: str = None,
-        provider: str = None,
-        api_mode: str = None,
-        acp_command: str = None,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
+        api_mode: Optional[str] = None,
+        acp_command: Optional[str] = None,
         acp_args: list[str] | None = None,
-        command: str = None,
+        command: Optional[str] = None,
         args: list[str] | None = None,
         model: str = "",
         max_iterations: int = 90,  # Default tool-calling iterations (shared with subagents)
         tool_delay: float = 1.0,
-        enabled_toolsets: List[str] = None,
-        disabled_toolsets: List[str] = None,
+        enabled_toolsets: Optional[List[str]] = None,
+        disabled_toolsets: Optional[List[str]] = None,
         save_trajectories: bool = False,
         verbose_logging: bool = False,
         quiet_mode: bool = False,
         tool_progress_mode: str = "all",
-        ephemeral_system_prompt: str = None,
+        ephemeral_system_prompt: Optional[str] = None,
         log_prefix_chars: int = 100,
         log_prefix: str = "",
-        providers_allowed: List[str] = None,
-        providers_ignored: List[str] = None,
-        providers_order: List[str] = None,
-        provider_sort: str = None,
+        providers_allowed: Optional[List[str]] = None,
+        providers_ignored: Optional[List[str]] = None,
+        providers_order: Optional[List[str]] = None,
+        provider_sort: Optional[str] = None,
         provider_require_parameters: bool = False,
-        provider_data_collection: str = None,
+        provider_data_collection: Optional[str] = None,
         openrouter_min_coding_score: Optional[float] = None,
-        session_id: str = None,
-        tool_progress_callback: callable = None,
-        tool_start_callback: callable = None,
-        tool_complete_callback: callable = None,
-        thinking_callback: callable = None,
-        reasoning_callback: callable = None,
-        clarify_callback: callable = None,
-        read_terminal_callback: callable = None,
-        step_callback: callable = None,
-        stream_delta_callback: callable = None,
-        interim_assistant_callback: callable = None,
-        tool_gen_callback: callable = None,
-        status_callback: callable = None,
-        notice_callback: callable = None,
-        notice_clear_callback: callable = None,
-        max_tokens: int = None,
-        reasoning_config: Dict[str, Any] = None,
-        service_tier: str = None,
-        request_overrides: Dict[str, Any] = None,
-        prefill_messages: List[Dict[str, Any]] = None,
-        platform: str = None,
-        user_id: str = None,
-        user_id_alt: str = None,
-        user_name: str = None,
-        chat_id: str = None,
-        chat_name: str = None,
-        chat_type: str = None,
-        thread_id: str = None,
-        gateway_session_key: str = None,
+        session_id: Optional[str] = None,
+        tool_progress_callback: Optional[Callable[..., Any]] = None,
+        tool_start_callback: Optional[Callable[..., Any]] = None,
+        tool_complete_callback: Optional[Callable[..., Any]] = None,
+        thinking_callback: Optional[Callable[..., Any]] = None,
+        reasoning_callback: Optional[Callable[..., Any]] = None,
+        clarify_callback: Optional[Callable[..., Any]] = None,
+        read_terminal_callback: Optional[Callable[..., Any]] = None,
+        step_callback: Optional[Callable[..., Any]] = None,
+        stream_delta_callback: Optional[Callable[..., Any]] = None,
+        interim_assistant_callback: Optional[Callable[..., Any]] = None,
+        tool_gen_callback: Optional[Callable[..., Any]] = None,
+        status_callback: Optional[Callable[..., Any]] = None,
+        notice_callback: Optional[Callable[..., Any]] = None,
+        notice_clear_callback: Optional[Callable[..., Any]] = None,
+        max_tokens: Optional[int] = None,
+        reasoning_config: Optional[Dict[str, Any]] = None,
+        service_tier: Optional[str] = None,
+        request_overrides: Optional[Dict[str, Any]] = None,
+        prefill_messages: Optional[List[Dict[str, Any]]] = None,
+        platform: Optional[str] = None,
+        user_id: Optional[str] = None,
+        user_id_alt: Optional[str] = None,
+        user_name: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        chat_name: Optional[str] = None,
+        chat_type: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        gateway_session_key: Optional[str] = None,
         skip_context_files: bool = False,
         load_soul_identity: bool = False,
         skip_memory: bool = False,
         session_db=None,
-        parent_session_id: str = None,
-        iteration_budget: "IterationBudget" = None,
-        fallback_model: Dict[str, Any] = None,
+        parent_session_id: Optional[str] = None,
+        iteration_budget: "Optional[IterationBudget]" = None,
+        fallback_model: Optional[Dict[str, Any]] = None,
         credential_pool=None,
         checkpoints_enabled: bool = False,
         checkpoint_max_snapshots: int = 20,
@@ -427,7 +427,7 @@ class AIAgent:
         """Forwarder — see ``agent.agent_init.init_agent``."""
         from agent.agent_init import init_agent
 
-        init_agent(
+        init_agent(  # type: ignore[call-arg]
             self,
             base_url=base_url,
             api_key=api_key,
@@ -521,18 +521,18 @@ class AIAgent:
 
     def _ensure_db_session(self) -> None:
         """Create session DB row on first use. Disables _session_db on failure."""
-        if self._session_db_created or not self._session_db:
+        if self._session_db_created or not self._session_db:  # type: ignore[attr-defined]
             return
-        source = self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli")
+        source = self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli")  # type: ignore[attr-defined]
         try:
-            self._session_db.create_session(
-                session_id=self.session_id,
+            self._session_db.create_session(  # type: ignore[attr-defined]
+                session_id=self.session_id,  # type: ignore[attr-defined]
                 source=source,
-                model=self.model,
-                model_config=self._session_init_model_config,
-                system_prompt=self._cached_system_prompt,
+                model=self.model,  # type: ignore[attr-defined]
+                model_config=self._session_init_model_config,  # type: ignore[attr-defined]
+                system_prompt=self._cached_system_prompt,  # type: ignore[attr-defined]
                 user_id=None,
-                parent_session_id=self._parent_session_id,
+                parent_session_id=self._parent_session_id,  # type: ignore[attr-defined]
                 cwd=_launch_cwd_for_session(source),
             )
             self._session_db_created = True
@@ -682,7 +682,7 @@ class AIAgent:
         """
         Preload the LM Studio model with at least Hermes' minimum context.
         """
-        if (self.provider or "").strip().lower() != "lmstudio":
+        if (self.provider or "").strip().lower() != "lmstudio":  # type: ignore[attr-defined]
             return
         try:
             from agent.model_metadata import MINIMUM_CONTEXT_LENGTH
@@ -692,7 +692,7 @@ class AIAgent:
                 config_context_length = getattr(self, "_config_context_length", None)
             target_ctx = max(config_context_length or 0, MINIMUM_CONTEXT_LENGTH)
             loaded_ctx = ensure_lmstudio_model_loaded(
-                self.model,
+                self.model,  # type: ignore[attr-defined]
                 self.base_url,
                 getattr(self, "api_key", ""),
                 target_ctx,
@@ -705,12 +705,12 @@ class AIAgent:
                 cc = getattr(self, "context_compressor", None)
                 if cc is not None:
                     cc.update_model(
-                        model=self.model,
+                        model=self.model,  # type: ignore[attr-defined]
                         context_length=loaded_ctx,
                         base_url=self.base_url,
                         api_key=getattr(self, "api_key", ""),
-                        provider=self.provider,
-                        api_mode=self.api_mode,
+                        provider=self.provider,  # type: ignore[attr-defined]
+                        api_mode=self.api_mode,  # type: ignore[attr-defined]
                     )
         except Exception as err:
             logger.debug("LM Studio preload skipped: %s", err)
@@ -736,7 +736,7 @@ class AIAgent:
         ``print_formatted_text(ANSI(...))``) without touching this method.
         """
         try:
-            fn = self._print_fn or print
+            fn = self._print_fn or print  # type: ignore[attr-defined]
             fn(*args, **kwargs)
         except (OSError, ValueError):
             pass
@@ -777,7 +777,7 @@ class AIAgent:
         - output is explicitly rerouted via ``_print_fn``; or
         - stdout is a real TTY.
         """
-        if self._print_fn is not None:
+        if self._print_fn is not None:  # type: ignore[attr-defined]
             return True
         stream = getattr(sys, "stdout", None)
         if stream is None:
@@ -796,8 +796,8 @@ class AIAgent:
         quiet mode to be truly silent.
         """
         return (
-            self.quiet_mode
-            and not self.tool_progress_callback
+            self.quiet_mode  # type: ignore[attr-defined]
+            and not self.tool_progress_callback  # type: ignore[attr-defined]
             and getattr(self, "platform", "") == "cli"
         )
 
@@ -812,12 +812,12 @@ class AIAgent:
         interrupt the retry/fallback logic.
         """
         try:
-            self._vprint(f"{self.log_prefix}{message}", force=True)
+            self._vprint(f"{self.log_prefix}{message}", force=True)  # type: ignore[attr-defined]
         except Exception:
             pass
-        if self.status_callback:
+        if self.status_callback:  # type: ignore[attr-defined]
             try:
-                self.status_callback("lifecycle", message)
+                self.status_callback("lifecycle", message)  # type: ignore[attr-defined]
             except Exception:
                 logger.debug("status_callback error in _emit_status", exc_info=True)
 
@@ -829,12 +829,12 @@ class AIAgent:
         continue but the user needs to know something important failed.
         """
         try:
-            self._vprint(f"{self.log_prefix}{message}", force=True)
+            self._vprint(f"{self.log_prefix}{message}", force=True)  # type: ignore[attr-defined]
         except Exception:
             pass
-        if self.status_callback:
+        if self.status_callback:  # type: ignore[attr-defined]
             try:
-                self.status_callback("warn", message)
+                self.status_callback("warn", message)  # type: ignore[attr-defined]
             except Exception:
                 logger.debug("status_callback error in _emit_warning", exc_info=True)
 
@@ -845,17 +845,17 @@ class AIAgent:
         driver does (TUI status-bar override, CLI console line). Swallows all
         callback errors — a notice must NEVER break the agent loop (D-D fail-open).
         """
-        if self.notice_callback:
+        if self.notice_callback:  # type: ignore[attr-defined]
             try:
-                self.notice_callback(notice)
+                self.notice_callback(notice)  # type: ignore[attr-defined]
             except Exception:
                 logger.debug("notice_callback error in _emit_notice", exc_info=True)
 
     def _emit_notice_clear(self, key: str) -> None:
         """Clear a previously-fired sticky notice by ``key`` (e.g. on recovery)."""
-        if self.notice_clear_callback:
+        if self.notice_clear_callback:  # type: ignore[attr-defined]
             try:
-                self.notice_clear_callback(key)
+                self.notice_clear_callback(key)  # type: ignore[attr-defined]
             except Exception:
                 logger.debug(
                     "notice_clear_callback error in _emit_notice_clear", exc_info=True
@@ -5729,6 +5729,6 @@ def main(
 
 
 if __name__ == "__main__":
-    import fire
+    import fire  # type: ignore[import-untyped]
 
     fire.Fire(main)

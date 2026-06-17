@@ -28,7 +28,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FuturesTimeoutError,
 )
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from toolsets import TOOLSETS
 
@@ -726,7 +726,7 @@ def _build_child_progress_callback(
     depth: Optional[int] = None,
     model: Optional[str] = None,
     toolsets: Optional[List[str]] = None,
-) -> Optional[callable]:
+) -> Optional[Callable[..., Any]]:
     """Build a callback that relays child agent tool calls to the parent display.
 
     Two display paths:
@@ -777,7 +777,7 @@ def _build_child_progress_callback(
         return kw
 
     def _relay(
-        event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs
+        event_type: str, tool_name: Optional[str] = None, preview: Optional[str] = None, args=None, **kwargs
     ):
         if not parent_cb:
             return
@@ -789,7 +789,7 @@ def _build_child_progress_callback(
             logger.debug("Parent callback failed: %s", e)
 
     def _callback(
-        event_type, tool_name: str = None, preview: str = None, args=None, **kwargs
+        event_type, tool_name: Optional[str] = None, preview: Optional[str] = None, args=None, **kwargs
     ):
         # Lifecycle events emitted by the orchestrator itself — handled
         # before enum normalisation since they are not part of DelegateEvent.
@@ -898,7 +898,7 @@ def _build_child_progress_callback(
             _relay("subagent.progress", preview=f"🔀 {prefix}{summary}")
             _batch.clear()
 
-    _callback._flush = _flush
+    _callback._flush = _flush  # type: ignore[attr-defined]
     return _callback
 
 
@@ -1200,18 +1200,18 @@ def _build_child_agent(
         tool_progress_callback=child_progress_cb,
         iteration_budget=None,  # fresh budget per subagent
     )
-    child._print_fn = getattr(parent_agent, "_print_fn", None)
+    child._print_fn = getattr(parent_agent, "_print_fn", None)  # type: ignore[attr-defined]
     # Set delegation depth so children can't spawn grandchildren
-    child._delegate_depth = child_depth
+    child._delegate_depth = child_depth  # type: ignore[attr-defined]
     # Stash the post-degrade role for introspection (leaf if the
     # kill switch or depth bounded the caller's requested role).
-    child._delegate_role = effective_role
+    child._delegate_role = effective_role  # type: ignore[attr-defined]
     # Stash subagent identity for nested-delegation event propagation and
     # for _run_single_child / interrupt_subagent to look up by id.
-    child._subagent_id = subagent_id
-    child._parent_subagent_id = parent_subagent_id
-    child._subagent_goal = goal
-    child._parent_turn_id = getattr(parent_agent, "_current_turn_id", "") or ""
+    child._subagent_id = subagent_id  # type: ignore[attr-defined]
+    child._parent_subagent_id = parent_subagent_id  # type: ignore[attr-defined]
+    child._subagent_goal = goal  # type: ignore[attr-defined]
+    child._parent_turn_id = getattr(parent_agent, "_current_turn_id", "") or ""  # type: ignore[attr-defined]
 
     # Share a credential pool with the child when possible so subagents can
     # rotate credentials on rate limits instead of getting pinned to one key.
@@ -1219,7 +1219,7 @@ def _build_child_agent(
         effective_provider, parent_agent, effective_base_url
     )
     if child_pool is not None:
-        child._credential_pool = child_pool
+        child._credential_pool = child_pool  # type: ignore[attr-defined]
 
     # Register child for interrupt propagation
     if hasattr(parent_agent, "_active_children"):
@@ -1390,7 +1390,7 @@ def _dump_subagent_timeout_diagnostic(
         _w("## Worker thread stack at timeout")
         if worker_thread is not None and worker_thread.is_alive():
             frames = _sys._current_frames()
-            worker_frame = frames.get(worker_thread.ident)
+            worker_frame = frames.get(worker_thread.ident)  # type: ignore[arg-type]
             if worker_frame is not None:
                 stack = _traceback.format_stack(worker_frame)
                 for frame_line in stack:
@@ -1449,7 +1449,7 @@ def _run_single_child(
             try:
                 leased_entry = child_pool.current()
                 if leased_entry is not None and hasattr(child, "_swap_credential"):
-                    child._swap_credential(leased_entry)
+                    child._swap_credential(leased_entry)  # type: ignore[union-attr]
             except Exception as exc:
                 logger.debug("Failed to bind child to leased credential: %s", exc)
 
@@ -1475,7 +1475,7 @@ def _run_single_child(
             # Pull detail from the child's own activity tracker
             desc = f"delegate_task: subagent {task_index} working"
             try:
-                child_summary = child.get_activity_summary()
+                child_summary = child.get_activity_summary()  # type: ignore[union-attr]
                 child_tool = child_summary.get("current_tool")
                 child_iter = child_summary.get("api_call_count", 0)
                 child_max = child_summary.get("max_iterations", 0)
@@ -1601,7 +1601,7 @@ def _run_single_child(
 
         def _run_with_thread_capture():
             _worker_thread_holder["t"] = threading.current_thread()
-            return child.run_conversation(
+            return child.run_conversation(  # type: ignore[union-attr]
                 user_message=goal,
                 task_id=child_task_id,
             )
@@ -1613,9 +1613,9 @@ def _run_single_child(
             # Signal the child to stop so its thread can exit cleanly.
             try:
                 if hasattr(child, "interrupt"):
-                    child.interrupt()
+                    child.interrupt()  # type: ignore[union-attr]
                 elif hasattr(child, "_interrupt_requested"):
-                    child._interrupt_requested = True
+                    child._interrupt_requested = True  # type: ignore[union-attr]
             except Exception:
                 pass
 
@@ -1634,7 +1634,7 @@ def _run_single_child(
             diagnostic_path: Optional[str] = None
             child_api_calls = 0
             try:
-                _summary = child.get_activity_summary()
+                _summary = child.get_activity_summary()  # type: ignore[union-attr]
                 child_api_calls = int(_summary.get("api_call_count", 0) or 0)
             except Exception:
                 pass
@@ -1971,9 +1971,9 @@ def _run_single_child(
                 lock = getattr(parent_agent, "_active_children_lock", None)
                 if lock:
                     with lock:
-                        parent_agent._active_children.remove(child)
+                        parent_agent._active_children.remove(child)  # type: ignore[union-attr]
                 else:
-                    parent_agent._active_children.remove(child)
+                    parent_agent._active_children.remove(child)  # type: ignore[union-attr]
             except (ValueError, UnboundLocalError) as e:
                 logger.debug("Could not remove child from active_children: %s", e)
 
@@ -1982,7 +1982,7 @@ def _run_single_child(
         # don't outlive the delegation.
         try:
             if hasattr(child, "close"):
-                child.close()
+                child.close()  # type: ignore[union-attr]
         except Exception:
             logger.debug("Failed to close child agent after delegation")
 
@@ -2220,7 +2220,7 @@ def delegate_task(
                 profile_name=resolved_profile_name,
             )
             # Override with correct parent tool names (before child construction mutated global)
-            child._delegate_saved_tool_names = _parent_tool_names
+            child._delegate_saved_tool_names = _parent_tool_names  # type: ignore[attr-defined]
             children.append((i, t, child))
     finally:
         # Authoritative restore: reset global to parent's tool names after all children built
@@ -2501,7 +2501,7 @@ def _resolve_child_credential_pool(
         try:
             from agent.credential_pool import get_custom_provider_pool_key, load_pool
 
-            child_key = get_custom_provider_pool_key(effective_base_url)
+            child_key = get_custom_provider_pool_key(effective_base_url)  # type: ignore[arg-type]
             if child_key is None:
                 # Unregistered endpoint (raw delegation.base_url with no
                 # matching custom_providers entry) -> no shared pool exists.
@@ -2511,7 +2511,7 @@ def _resolve_child_credential_pool(
 
             # Reuse the parent's pool only when it is the same custom endpoint.
             parent_key = get_custom_provider_pool_key(
-                getattr(parent_agent, "base_url", None)
+                getattr(parent_agent, "base_url", None)  # type: ignore[arg-type]
             )
             if (
                 parent_pool is not None
@@ -2732,6 +2732,50 @@ def _load_agent_profiles() -> dict:
     except Exception:
         pass
     return {}
+
+
+def _load_profiles() -> dict:
+    """Return all named agent profiles from config. Alias for _load_agent_profiles."""
+    return _load_agent_profiles()
+
+
+def _resolve_profile(profile_name: str, profiles_dict: dict) -> dict:
+    """Resolve a named profile from ``profiles_dict``, applying field transformations.
+
+    Raises ValueError if the profile is unknown or field values are invalid.
+    Returns a deep copy so callers can mutate without affecting the source.
+    """
+    import copy
+
+    if profile_name not in profiles_dict:
+        available = list(profiles_dict.keys())
+        raise ValueError(
+            f"Unknown agent profile {profile_name!r}. Available profiles: {available}"
+        )
+
+    cfg = copy.deepcopy(profiles_dict[profile_name])
+
+    if "system_prompt" in cfg:
+        cfg["system_prompt_text"] = cfg.pop("system_prompt")
+
+    if "system_prompt_file" in cfg:
+        path = cfg.pop("system_prompt_file")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                cfg["system_prompt_text"] = fh.read()
+        except OSError as exc:
+            raise ValueError(f"Cannot read system_prompt_file {path!r}: {exc}") from exc
+
+    if "max_iterations" in cfg:
+        val = cfg["max_iterations"]
+        try:
+            cfg["max_iterations"] = int(val)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"max_iterations must be an integer for profile {profile_name!r}, got {val!r}"
+            ) from exc
+
+    return cfg
 
 
 # ---------------------------------------------------------------------------

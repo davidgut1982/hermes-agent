@@ -27,7 +27,7 @@ import threading
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse, parse_qs, urlunparse
 
 from agent.context_compressor import ContextCompressor
@@ -153,69 +153,69 @@ def _merge_custom_provider_extra_body(agent, custom_providers: List[Dict[str, An
 
 def init_agent(
     agent,
-    base_url: str = None,
-    api_key: str = None,
-    provider: str = None,
-    api_mode: str = None,
-    acp_command: str = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+    api_mode: Optional[str] = None,
+    acp_command: Optional[str] = None,
     acp_args: list[str] | None = None,
-    command: str = None,
+    command: Optional[str] = None,
     args: list[str] | None = None,
     model: str = "",
     max_iterations: int = 90,  # Default tool-calling iterations (shared with subagents)
     tool_delay: float = 1.0,
-    enabled_toolsets: List[str] = None,
-    disabled_toolsets: List[str] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
     save_trajectories: bool = False,
     verbose_logging: bool = False,
     quiet_mode: bool = False,
     tool_progress_mode: str = "all",
-    ephemeral_system_prompt: str = None,
+    ephemeral_system_prompt: Optional[str] = None,
     log_prefix_chars: int = 100,
     log_prefix: str = "",
-    providers_allowed: List[str] = None,
-    providers_ignored: List[str] = None,
-    providers_order: List[str] = None,
-    provider_sort: str = None,
+    providers_allowed: Optional[List[str]] = None,
+    providers_ignored: Optional[List[str]] = None,
+    providers_order: Optional[List[str]] = None,
+    provider_sort: Optional[str] = None,
     provider_require_parameters: bool = False,
-    provider_data_collection: str = None,
+    provider_data_collection: Optional[str] = None,
     openrouter_min_coding_score: Optional[float] = None,
-    session_id: str = None,
-    tool_progress_callback: callable = None,
-    tool_start_callback: callable = None,
-    tool_complete_callback: callable = None,
-    thinking_callback: callable = None,
-    reasoning_callback: callable = None,
-    clarify_callback: callable = None,
-    read_terminal_callback: callable = None,
-    step_callback: callable = None,
-    stream_delta_callback: callable = None,
-    interim_assistant_callback: callable = None,
-    tool_gen_callback: callable = None,
-    status_callback: callable = None,
-    notice_callback: callable = None,
-    notice_clear_callback: callable = None,
-    max_tokens: int = None,
-    reasoning_config: Dict[str, Any] = None,
-    service_tier: str = None,
-    request_overrides: Dict[str, Any] = None,
-    prefill_messages: List[Dict[str, Any]] = None,
-    platform: str = None,
-    user_id: str = None,
-    user_id_alt: str = None,
-    user_name: str = None,
-    chat_id: str = None,
-    chat_name: str = None,
-    chat_type: str = None,
-    thread_id: str = None,
-    gateway_session_key: str = None,
+    session_id: Optional[str] = None,
+    tool_progress_callback: Optional[Callable[..., Any]] = None,
+    tool_start_callback: Optional[Callable[..., Any]] = None,
+    tool_complete_callback: Optional[Callable[..., Any]] = None,
+    thinking_callback: Optional[Callable[..., Any]] = None,
+    reasoning_callback: Optional[Callable[..., Any]] = None,
+    clarify_callback: Optional[Callable[..., Any]] = None,
+    read_terminal_callback: Optional[Callable[..., Any]] = None,
+    step_callback: Optional[Callable[..., Any]] = None,
+    stream_delta_callback: Optional[Callable[..., Any]] = None,
+    interim_assistant_callback: Optional[Callable[..., Any]] = None,
+    tool_gen_callback: Optional[Callable[..., Any]] = None,
+    status_callback: Optional[Callable[..., Any]] = None,
+    notice_callback: Optional[Callable[..., Any]] = None,
+    notice_clear_callback: Optional[Callable[..., Any]] = None,
+    max_tokens: Optional[int] = None,
+    reasoning_config: Optional[Dict[str, Any]] = None,
+    service_tier: Optional[str] = None,
+    request_overrides: Optional[Dict[str, Any]] = None,
+    prefill_messages: Optional[List[Dict[str, Any]]] = None,
+    platform: Optional[str] = None,
+    user_id: Optional[str] = None,
+    user_id_alt: Optional[str] = None,
+    user_name: Optional[str] = None,
+    chat_id: Optional[str] = None,
+    chat_name: Optional[str] = None,
+    chat_type: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    gateway_session_key: Optional[str] = None,
     skip_context_files: bool = False,
     load_soul_identity: bool = False,
     skip_memory: bool = False,
     session_db=None,
-    parent_session_id: str = None,
-    iteration_budget: "IterationBudget" = None,
-    fallback_model: Dict[str, Any] = None,
+    parent_session_id: Optional[str] = None,
+    iteration_budget: Optional["IterationBudget"] = None,
+    fallback_model: Optional[Dict[str, Any]] = None,
     credential_pool=None,
     checkpoints_enabled: bool = False,
     checkpoint_max_snapshots: int = 20,
@@ -432,12 +432,12 @@ def init_agent(
     # even when stream consumers are registered (no tokens streaming then)
     agent._executing_tools = False
     agent._tool_guardrails = ToolCallGuardrailController()
-    agent._tool_guardrail_halt_decision: ToolGuardrailDecision | None = None
+    agent._tool_guardrail_halt_decision: ToolGuardrailDecision | None = None  # pyright: ignore[reportInvalidTypeForm]
 
     # Interrupt mechanism for breaking out of tool loops
     agent._interrupt_requested = False
     agent._interrupt_message = None  # Optional message that triggered interrupt
-    agent._execution_thread_id: int | None = None  # Set at run_conversation() start
+    agent._execution_thread_id: int | None = None  # pyright: ignore[reportInvalidTypeForm]  # Set at run_conversation() start
     agent._interrupt_thread_signal_pending = False
     agent._client_lock = threading.RLock()
 
@@ -448,7 +448,7 @@ def init_agent(
     # last tool result's content so the model sees it on its next
     # iteration. Message-role alternation is preserved (we modify an
     # existing tool message rather than inserting a new user turn).
-    agent._pending_steer: Optional[str] = None
+    agent._pending_steer: Optional[str] = None  # pyright: ignore[reportInvalidTypeForm]
     agent._pending_steer_lock = threading.Lock()
 
     # Concurrent-tool worker thread tracking.  `_execute_tool_calls_concurrent`
@@ -458,7 +458,7 @@ def init_agent(
     # `is_interrupted()` inside the worker to return True.  Track the
     # workers here so `interrupt()` / `clear_interrupt()` can fan out to
     # their tids explicitly.
-    agent._tool_worker_threads: set[int] = set()
+    agent._tool_worker_threads: set[int] = set()  # pyright: ignore[reportInvalidTypeForm]
     agent._tool_worker_threads_lock = threading.Lock()
     
     # Subagent delegation state
@@ -524,14 +524,14 @@ def init_agent(
     # stream chunk.  Used by the gateway timeout handler to report what the
     # agent was doing when it was killed, and by the "still working"
     # notifications to show progress.
-    agent._last_activity_ts: float = time.time()
-    agent._last_activity_desc: str = "initializing"
-    agent._current_tool: str | None = None
-    agent._api_call_count: int = 0
+    agent._last_activity_ts: float = time.time()  # pyright: ignore[reportInvalidTypeForm]
+    agent._last_activity_desc: str = "initializing"  # pyright: ignore[reportInvalidTypeForm]
+    agent._current_tool: str | None = None  # pyright: ignore[reportInvalidTypeForm]
+    agent._api_call_count: int = 0  # pyright: ignore[reportInvalidTypeForm]
 
     # Rate limit tracking — updated from x-ratelimit-* response headers
     # after each API call.  Accessed by /usage slash command.
-    agent._rate_limit_state: Optional["RateLimitState"] = None
+    agent._rate_limit_state: Optional["RateLimitState"] = None  # pyright: ignore[reportInvalidTypeForm]
 
     # Credits tracking (dev-only, L0 usage-aware-credits) — updated from
     # x-nous-credits-* response headers after each API call.  Session-start
@@ -544,7 +544,7 @@ def init_agent(
 
     # OpenRouter response cache hit counter — incremented when
     # X-OpenRouter-Cache-Status: HIT is seen in streaming response headers.
-    agent._or_cache_hits: int = 0
+    agent._or_cache_hits: int = 0  # pyright: ignore[reportInvalidTypeForm]
 
     # Centralized logging — agent.log (INFO+) and errors.log (WARNING+)
     # both live under ~/.hermes/logs/.  Idempotent, so gateway mode
@@ -600,7 +600,7 @@ def init_agent(
     # Cache anthropic image-to-text fallbacks per image payload/URL so a
     # single tool loop does not repeatedly re-run auxiliary vision on the
     # same image history.
-    agent._anthropic_image_fallback_cache: Dict[str, str] = {}
+    agent._anthropic_image_fallback_cache: Dict[str, str] = {}  # pyright: ignore[reportInvalidTypeForm]
 
     # Initialize LLM client via centralized provider router.
     # The router handles auth resolution, base URL, headers, and
@@ -838,9 +838,9 @@ def init_agent(
                             if _fb_key_env:
                                 _fb_explicit_key = os.getenv(_fb_key_env, "").strip() or None
                         _fb_client, _fb_model = resolve_provider_client(
-                            _fb["provider"], model=_fb["model"], raw_codex=True,
-                            explicit_base_url=_fb.get("base_url"),
-                            explicit_api_key=_fb_explicit_key,
+                            _fb["provider"], model=_fb["model"], raw_codex=True,  # type: ignore[arg-type]
+                            explicit_base_url=_fb.get("base_url"),  # type: ignore[arg-type]
+                            explicit_api_key=_fb_explicit_key,  # type: ignore[arg-type]
                         )
                         if _fb_client is not None:
                             agent.provider = _fb["provider"]
@@ -1050,7 +1050,7 @@ def init_agent(
     # breadcrumb path written by agent_runtime_helpers.dump_api_request_debug).
     
     # Track conversation messages for session logging
-    agent._session_messages: List[Dict[str, Any]] = []
+    agent._session_messages: List[Dict[str, Any]] = []  # pyright: ignore[reportInvalidTypeForm]
     # Responses encrypted reasoning replay state.  Some OpenAI-compatible
     # routes accept GPT-5 Responses requests but later reject replayed
     # encrypted reasoning blobs (HTTP 400 ``invalid_encrypted_content``).
@@ -1062,7 +1062,7 @@ def init_agent(
     agent._memory_write_context = "foreground"
     
     # Cached system prompt -- built once per session, only rebuilt on compression
-    agent._cached_system_prompt: Optional[str] = None
+    agent._cached_system_prompt: Optional[str] = None  # pyright: ignore[reportInvalidTypeForm]
     
     # Filesystem checkpoint manager (transparent — not a tool)
     from tools.checkpoint_manager import CheckpointManager
@@ -1572,7 +1572,7 @@ def init_agent(
     # provider tools — without the gate, `platform_toolsets: telegram: []`
     # would still leak lcm_* tools into the tool surface and incur the
     # same local-model latency penalty.
-    agent._context_engine_tool_names: set = set()
+    agent._context_engine_tool_names: set = set()  # pyright: ignore[reportInvalidTypeForm]
     if (
         hasattr(agent, "context_compressor")
         and agent.context_compressor
@@ -1638,7 +1638,7 @@ def init_agent(
     # User override: set model.ollama_num_ctx in config.yaml to cap VRAM use.
     # If model.context_length is set, it caps num_ctx so the user's VRAM
     # budget is respected even when GGUF metadata advertises a larger window.
-    agent._ollama_num_ctx: int | None = None
+    agent._ollama_num_ctx: int | None = None  # pyright: ignore[reportInvalidTypeForm]
     _ollama_num_ctx_override = None
     if isinstance(_model_cfg, dict):
         _ollama_num_ctx_override = _model_cfg.get("ollama_num_ctx")

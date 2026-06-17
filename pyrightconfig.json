@@ -1,0 +1,14 @@
+{
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportUndefinedVariable": "error",
+  "reportMissingModuleSource": "warning",
+  "reportAttributeAccessIssue": "none",
+  "reportFunctionMemberAccess": "none",
+  "reportArgumentType": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportCallIssue": "none",
+  "reportInvalidTypeForm": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportOperatorIssue": "none"
+}
