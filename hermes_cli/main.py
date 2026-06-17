@@ -12640,18 +12640,33 @@ def _prepare_agent_startup(args) -> None:
         # runtime path (gateway executor, ACP launcher, cron job runner).
         _run_inline_mcp_discovery = False
     elif _should_background_mcp_startup(args):
-        try:
-            from hermes_cli.mcp_startup import start_background_mcp_discovery
+        if _active_platform_uses_no_mcp_at_startup():
+            try:
+                from tools.mcp_tool import mark_eager_discovery_skipped
 
-            start_background_mcp_discovery(
-                logger=logger,
-                thread_name="cli-mcp-discovery",
-            )
-        except Exception:
-            logger.debug(
-                "Background MCP tool discovery failed at CLI startup",
-                exc_info=True,
-            )
+                mark_eager_discovery_skipped()
+                logger.debug(
+                    "MCP eager discovery skipped at CLI startup "
+                    "(platform uses no_mcp); tools will load lazily on first delegation"
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to mark MCP eager discovery skipped at CLI startup",
+                    exc_info=True,
+                )
+        else:
+            try:
+                from hermes_cli.mcp_startup import start_background_mcp_discovery
+
+                start_background_mcp_discovery(
+                    logger=logger,
+                    thread_name="cli-mcp-discovery",
+                )
+            except Exception:
+                logger.debug(
+                    "Background MCP tool discovery failed at CLI startup",
+                    exc_info=True,
+                )
         _run_inline_mcp_discovery = False
     if _run_inline_mcp_discovery:
         try:
