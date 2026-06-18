@@ -2027,14 +2027,24 @@ def delegate_task(
     delegation.max_spawn_depth.  Per-task role beats the top-level one.
 
     The 'profile' parameter names an entry in the top-level
-    ``agent_profiles`` config mapping.  When set, the profile's declared
-    toolsets are used as the effective toolset list for the child, and
-    ``profile_name`` is forwarded to ``_build_child_agent`` so that
-    MCP toolsets declared by the profile bypass the parent's toolset
-    intersection.  This is the mechanism that lets fat sub-agents receive
-    their full MCP toolsets even when the orchestrator runs under a
-    ``no_mcp`` platform toolset.  See NousResearch/hermes-agent#32668 and
-    #32727.
+    ``agent_profiles`` config mapping.  When set and the profile declares
+    a non-empty ``toolsets`` list, those toolsets apply to every child
+    (single or batch) and the profile's MCP toolsets bypass the parent's
+    toolset intersection in ``_build_child_agent`` — letting fat
+    sub-agents receive full MCP toolsets even when the orchestrator runs
+    under a ``no_mcp`` platform toolset.
+
+    Security: in batch mode, per-task ``toolsets`` fields in the
+    ``tasks`` array are ignored when a top-level profile is resolved —
+    a model cannot inject MCP toolsets by naming a valid profile and
+    supplying per-task toolsets the profile never declared.  A profile
+    with no ``toolsets`` key does NOT activate the bypass.
+
+    Per-task ``profile`` fields in ``tasks`` items only supply
+    ``max_iterations`` for that task; toolsets and model remain locked
+    to the top-level profile.
+
+    See NousResearch/hermes-agent#32668 and #32727.
 
     Returns JSON with results array, one entry per task.
     """
@@ -3043,6 +3053,15 @@ DELEGATE_TASK_SCHEMA = {
                             "enum": ["leaf", "orchestrator"],
                             "description": "Per-task role override. See top-level 'role' for semantics.",
                         },
+                        "profile": {
+                            "type": "string",
+                            "description": (
+                                "Per-task profile name. Only supplies max_iterations for this "
+                                "task from the named profile. Toolsets and model remain locked "
+                                "to the top-level profile (or parent intersection). The profile "
+                                "name is not forwarded to the child agent."
+                            ),
+                        },
                     },
                     "required": ["goal"],
                 },
@@ -3082,11 +3101,17 @@ DELEGATE_TASK_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Named agent_profiles entry whose toolsets (and optionally model "
-                    "and system prompt) the sub-agent should use. When set, the "
-                    "profile's declared MCP toolsets are forwarded to the child even "
-                    "when the orchestrator runs under a no_mcp platform_toolset that "
-                    "has no MCP servers of its own. Leave unset to use ad-hoc "
-                    "toolsets or inherit from the parent. Example: 'documents'."
+                    "and system prompt) the sub-agent should use. The profile MUST "
+                    "declare a non-empty 'toolsets' list to activate the MCP bypass; "
+                    "a profile with no toolsets key falls back to parent intersection. "
+                    "In batch calls, the profile's toolsets apply to every task — "
+                    "per-task 'toolsets' in the tasks array are ignored when a "
+                    "top-level profile is active. Leave unset to use ad-hoc toolsets "
+                    "or inherit from the parent. WARNING: if the profile defines a "
+                    "system_prompt, it REPLACES the child's entire default system "
+                    "prompt (does NOT append). A child that loses its delegation "
+                    "instructions cannot spawn subagents — use system_prompt profiles "
+                    "only for leaf workers. Example: 'documents'."
                 ),
             },
         },

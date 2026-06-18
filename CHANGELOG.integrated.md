@@ -43,6 +43,20 @@ Last updated: 2026-06-04
 - **fix/fallback-provider-model-key** — Fallback provider model key fix; correct key lookup in multi-provider config.
 - **feat/namespace-prefix-guard** — Namespace prefix guard; prevents tool name collisions when multiple MCP servers expose tools with the same base name.
 
+### Security Hardening — delegate_tool profile bypass (fix-security)
+
+- **Batch toolset injection block**: when a top-level `profile` is active
+  in a batch call, model-supplied per-task `toolsets` in the `tasks` array
+  are ignored; the profile's declared toolsets are authoritative for all
+  tasks.
+- **Empty-profile bypass block**: a profile with no `toolsets` key no
+  longer activates the MCP parent-intersection bypass; fallback to
+  intersection path with a warning.
+- **Profile toolset deep copy**: `list(profile_toolsets)` prevents
+  in-place mutation from aliasing back into the cached config.
+- **Loader consolidation**: removed deprecated `_load_profiles()`; unified
+  into `_load_agent_profiles()`.
+
 ### Infrastructure (this session — 2026-06-04)
 
 - **Stable/dev sandbox split** — Structural separation: stable install at `/opt/hermes/home/.hermes/hermes-agent` (always on `integrated`, runs live gateway), dev sandbox at `/opt/hermes/dev/hermes-agent` (all hacking, `hermesdev` command, isolated `HERMES_HOME`). Prevents the 2026-06-04 outage class where the deploy tree was left on a feature branch.

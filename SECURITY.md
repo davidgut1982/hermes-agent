@@ -150,6 +150,12 @@ are useful. They are not boundaries.
   is operator review before install. Reviewing a skill means
   reading its Python code and scripts, not just its SKILL.md
   description — skills execute arbitrary Python at import time.
+- **Profile toolset enforcement** gates which MCP toolsets a model-named
+  subagent profile may receive in `delegate_task`.  A model naming a valid
+  profile cannot inject toolsets the profile never declared (batch injection
+  block); a profile with no `toolsets` key does not activate the MCP bypass.
+  This is an in-process mechanism — it is not a substitute for OS-level
+  isolation of MCP subprocess permissions.
 
 ### 2.5 Plugin Trust Model
 
