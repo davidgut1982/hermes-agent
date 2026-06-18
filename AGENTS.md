@@ -798,6 +798,28 @@ orchestrator that restricts its own MCP context (via `no_mcp` in
 they explicitly need.  Non-MCP toolsets still go through parent intersection
 — the security boundary for ad-hoc delegation is preserved.  See #32668.
 
+**Security hardening — batch-mode toolset injection block:** When a
+top-level ``profile`` is resolved (and the profile declares a non-empty
+``toolsets`` list), those toolsets are authoritative for every task in
+the batch.  Per-task ``toolsets`` fields supplied in batch ``tasks``
+array items are ignored — a model cannot name a valid profile to activate
+the MCP bypass and then inject arbitrary MCP toolsets via per-task fields
+the profile never declared.  A profile with no ``toolsets`` key does NOT
+activate the bypass; the child falls back to the parent-intersection path
+and a warning is logged.
+
+**Per-task ``profile`` field in batch mode:** Each task in a ``tasks``
+array may include a ``"profile"`` key.  Its only effect is to supply
+``max_iterations`` for that task from the named profile.  Toolsets and
+model remain locked to the top-level profile (or the ad-hoc intersection
+if no top-level profile is set).  The per-task profile name is not
+forwarded to ``_build_child_agent``.
+
+**Profile loader:** ``_load_agent_profiles()`` is the sole loader for
+``agent_profiles`` config entries.  The former ``_load_profiles()``
+function was removed; any patch targets or tests referencing it must use
+``_load_agent_profiles`` instead.
+
 Synchronicity rule: delegate_task is **not** durable. For long-running
 work that must outlive the current turn, use `cronjob` or
 `terminal(background=True, notify_on_complete=True)` instead.
