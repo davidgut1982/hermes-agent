@@ -31,7 +31,7 @@ from tools.delegate_tool import (
     _build_child_agent,
     _build_child_progress_callback,
     _build_child_system_prompt,
-    _load_profiles,
+    _load_agent_profiles,
     _resolve_profile,
     _strip_blocked_tools,
     _resolve_child_credential_pool,
@@ -2754,13 +2754,13 @@ class TestAgentProfiles(unittest.TestCase):
         self.assertEqual(props["profile"]["type"], "string")
 
     def test_load_profiles_returns_empty_on_error(self):
-        """_load_profiles returns {} if config load fails."""
+        """_load_agent_profiles returns {} if config load fails."""
         with patch(
             "hermes_cli.config.load_config", side_effect=RuntimeError("boom")
         ):
-            self.assertEqual(_load_profiles(), {})
+            self.assertEqual(_load_agent_profiles(), {})
 
-    @patch("tools.delegate_tool._load_profiles")
+    @patch("tools.delegate_tool._load_agent_profiles")
     @patch("tools.delegate_tool._load_config")
     @patch("tools.delegate_tool._resolve_delegation_credentials")
     def test_profile_drives_child_model_and_prompt(
@@ -2809,7 +2809,7 @@ class TestAgentProfiles(unittest.TestCase):
                 "You are the fast profile worker.",
             )
 
-    @patch("tools.delegate_tool._load_profiles")
+    @patch("tools.delegate_tool._load_agent_profiles")
     @patch("tools.delegate_tool._load_config")
     @patch("tools.delegate_tool._resolve_delegation_credentials")
     def test_profile_toolsets_are_authoritative_over_explicit(
@@ -2857,7 +2857,7 @@ class TestAgentProfiles(unittest.TestCase):
             _, kwargs = mock_build.call_args
             self.assertEqual(kwargs["toolsets"], ["web"])
 
-    @patch("tools.delegate_tool._load_profiles")
+    @patch("tools.delegate_tool._load_agent_profiles")
     @patch("tools.delegate_tool._load_config")
     @patch("tools.delegate_tool._resolve_delegation_credentials")
     def test_profile_max_iterations_applied_single_task(
@@ -2895,7 +2895,7 @@ class TestAgentProfiles(unittest.TestCase):
             _, kwargs = mock_build.call_args
             self.assertEqual(kwargs["max_iterations"], 30)
 
-    @patch("tools.delegate_tool._load_profiles")
+    @patch("tools.delegate_tool._load_agent_profiles")
     @patch("tools.delegate_tool._load_config")
     @patch("tools.delegate_tool._resolve_delegation_credentials")
     def test_per_task_profile_max_iterations_beats_top_level(
@@ -2939,7 +2939,7 @@ class TestAgentProfiles(unittest.TestCase):
         """delegate_task with an unknown profile returns a clean error, not a crash."""
         parent = _make_mock_parent(depth=0)
         with patch(
-            "tools.delegate_tool._load_profiles", return_value={"known": {}}
+            "tools.delegate_tool._load_agent_profiles", return_value={"known": {}}
         ):
             result = json.loads(
                 delegate_task(goal="g", profile="missing", parent_agent=parent)

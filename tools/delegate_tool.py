@@ -2207,6 +2207,19 @@ def delegate_task(
             # Per-task role beats top-level; normalise again so unknown
             # per-task values warn and degrade to leaf uniformly.
             effective_role = _normalize_role(t.get("role") or top_role)
+            # Per-task profile may override max_iterations ONLY.
+            # Toolsets stay locked to the top-level profile (security note below).
+            task_max_iter = effective_max_iter
+            _task_profile_name = t.get("profile")
+            if _task_profile_name and isinstance(_task_profile_name, str) and _task_profile_name.strip():
+                try:
+                    _task_pdata = _resolve_profile(_task_profile_name, _load_agent_profiles())
+                except ValueError:
+                    pass
+                else:
+                    _tp_max = _task_pdata.get("max_iterations")
+                    if _tp_max:
+                        task_max_iter = int(_tp_max)
             child = _build_child_agent(
                 task_index=i,
                 goal=t["goal"],
@@ -2219,7 +2232,7 @@ def delegate_task(
                 # the profile never declared — a privilege-escalation vector.
                 toolsets=profile_resolved_toolsets if resolved_profile_name else (t.get("toolsets") or toolsets),
                 model=creds["model"],
-                max_iterations=effective_max_iter,
+                max_iterations=task_max_iter,
                 task_count=n_tasks,
                 parent_agent=parent_agent,
                 override_provider=creds["provider"],
