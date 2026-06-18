@@ -329,38 +329,31 @@ class TestDelegateTaskProfileWiring:
     @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
-    def test_unknown_profile_falls_back_gracefully(
+    def test_unknown_profile_returns_error(
         self, mock_build, _mock_cfg, _mock_profiles
     ):
-        """Unknown profile name logs a warning and falls back to explicit toolsets.
+        """Unknown profile name must hard-fail (fail-closed) with tool_error.
 
-        Why: A typo in a profile name should not hard-fail the delegation;
-        it should fall back to whatever toolsets the caller provided, if any.
-        Test: Pass profile='nonexistent', assert profile_name=None in call.
+        Why: A typo'd or injected profile name must not silently fall back to
+        caller-supplied toolsets — that would let a model bypass profile scope
+        enforcement by naming a non-existent profile.
+        Test: Pass profile='nonexistent', assert delegate_task returns an error
+        string and _build_child_agent is never called.
         """
-        fake_child = MagicMock()
-        fake_child._delegate_saved_tool_names = []
-        mock_build.return_value = fake_child
-
         parent = _make_no_mcp_parent()
         parent.enabled_toolsets = ["terminal"]
 
-        with patch(
-            "tools.delegate_tool._run_single_child",
-            return_value=_make_fake_child_result(0),
-        ):
-            delegate_task(
-                goal="Do something",
-                toolsets=["terminal"],
-                profile="nonexistent",
-                parent_agent=parent,
-            )
-
-        _, kwargs = mock_build.call_args
-        # Unknown profile → resolved_profile_name stays None → no bypass.
-        assert kwargs.get("profile_name") is None, (
-            f"Unknown profile should leave profile_name=None, got {kwargs.get('profile_name')!r}"
+        result = delegate_task(
+            goal="Do something",
+            toolsets=["terminal"],
+            profile="nonexistent",
+            parent_agent=parent,
         )
+
+        import json
+        parsed = json.loads(result)
+        assert "error" in parsed, f"Expected error key in result, got {parsed!r}"
+        mock_build.assert_not_called()
 
 
 class TestDelegateTaskSchemaProfile:

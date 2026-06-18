@@ -16,6 +16,7 @@ The parent's context only sees the delegation call and the summary result,
 never the child's intermediate tool calls or reasoning.
 """
 
+import copy
 import enum
 import json
 import logging
@@ -1166,6 +1167,11 @@ def _build_child_agent(
         # openrouter/pareto-code), so we keep it inherited even when the
         # provider is overridden — it's a no-op on any other model.
 
+    if any(_is_mcp_toolset_name(t) for t in child_toolsets):
+        from tools.mcp_tool import ensure_mcp_discovered
+
+        ensure_mcp_discovered()
+
     child = AIAgent(
         base_url=effective_base_url,
         api_key=effective_api_key,
@@ -2098,48 +2104,36 @@ def delegate_task(
     # ``resolved_profile_name`` stays None when no profile was requested so
     # the existing intersection path in _build_child_agent is unchanged.
     resolved_profile_name: Optional[str] = None
+    profile_data: Optional[dict] = None
     if profile and isinstance(profile, str) and profile.strip():
         all_profiles = _load_agent_profiles()
-        profile_cfg = all_profiles.get(profile)
-        if profile_cfg is None:
-            logger.warning(
-                "delegate_task: unknown profile %r; known profiles: %s. "
-                "Falling back to explicit toolsets (if any).",
-                profile,
-                sorted(all_profiles.keys()) if all_profiles else [],
-            )
+        try:
+            profile_data = _resolve_profile(profile, all_profiles)
+        except ValueError as exc:
+            return tool_error(str(exc))
+        profile_toolsets = profile_data.get("toolsets")
+        if profile_toolsets and isinstance(profile_toolsets, list):
+            resolved_profile_name = profile
+            toolsets = list(profile_toolsets)
         else:
-            profile_toolsets = profile_cfg.get("toolsets")
-            if profile_toolsets and isinstance(profile_toolsets, list):
-                # Profile toolsets are authoritative: store them separately so
-                # the batch path (below) can enforce them per-task without
-                # allowing model-supplied per-task toolsets to override.
-                resolved_profile_name = profile
-                # Copy, not reference: profile_toolsets is the list stored
-                # inside the config dict returned by _load_agent_profiles().
-                # Assigning the reference directly means any later in-place
-                # mutation (e.g. .append() / .clear()) of the working
-                # `toolsets` variable would corrupt the config for the entire
-                # process lifetime.  list() gives us an independent shallow
-                # copy of the string items, which is all we need.
-                toolsets = list(profile_toolsets)
-            else:
-                # Profile declares no toolsets — granting the bypass here
-                # would activate the mcp-* exception in _build_child_agent
-                # with whatever the model supplied as toolsets.  That is a
-                # privilege-escalation vector, so we refuse to set the
-                # resolved name and fall back to the normal intersection path.
-                logger.warning(
-                    "delegate_task: profile %r has no non-empty toolsets list; "
-                    "bypass NOT activated (falling back to intersection path).",
-                    profile,
-                )
-            logger.debug(
-                "delegate_task: resolved profile %r → resolved_profile_name=%r toolsets=%s",
+            logger.warning(
+                "delegate_task: profile %r has no non-empty toolsets list; "
+                "bypass NOT activated (falling back to intersection path).",
                 profile,
-                resolved_profile_name,
-                toolsets,
             )
+        logger.debug(
+            "delegate_task: resolved profile %r → resolved_profile_name=%r toolsets=%s",
+            profile,
+            resolved_profile_name,
+            toolsets,
+        )
+
+    if profile_data:
+        _top_profile_max_iter = profile_data.get("max_iterations")
+        if _top_profile_max_iter and effective_max_iter == default_max_iter:
+            effective_max_iter = _top_profile_max_iter
+        if not creds.get("model") and profile_data.get("model"):
+            creds["model"] = profile_data["model"]
 
     # Capture the profile-resolved toolsets so the batch loop below can enforce
     # them as authoritative, ignoring any per-task toolsets the model supplies.
@@ -2243,6 +2237,11 @@ def delegate_task(
                 role=effective_role,
                 profile_name=resolved_profile_name,
             )
+            # Apply profile system prompt when the resolved profile supplies one.
+            if profile_data:
+                _profile_prompt = profile_data.get("system_prompt_text")
+                if _profile_prompt:
+                    setattr(child, "ephemeral_system_prompt", _profile_prompt)
             # Override with correct parent tool names (before child construction mutated global)
             child._delegate_saved_tool_names = _parent_tool_names
             children.append((i, t, child))
@@ -2736,6 +2735,44 @@ def _load_agent_profiles() -> dict:
     except Exception:
         pass
     return {}
+
+
+def _resolve_profile(name: str, profiles: dict) -> dict:
+    """Validate profile name and resolve system_prompt_file -> system_prompt_text.
+
+    Returns a dict with zero or more of: model, toolsets, max_iterations,
+    system_prompt_text. Unknown keys are preserved for forward-compatibility.
+    Raises ValueError for unknown profile names or unreadable system_prompt_file.
+    """
+    if name not in profiles:
+        available = list(profiles)
+        raise ValueError(
+            f"Unknown agent profile {name!r}. "
+            f"Available profiles: {available if available else '(none configured)'}"
+        )
+    raw = copy.deepcopy(profiles[name])
+    spf = raw.pop("system_prompt_file", None)
+    if spf:
+        import os
+        from pathlib import Path
+        path = Path(os.path.expanduser(os.path.expandvars(str(spf))))
+        try:
+            raw["system_prompt_text"] = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValueError(
+                f"Cannot read system_prompt_file {spf!r} for profile {name!r}: {exc}"
+            ) from exc
+    elif "system_prompt" in raw:
+        raw["system_prompt_text"] = raw.pop("system_prompt")
+    if "max_iterations" in raw:
+        try:
+            raw["max_iterations"] = int(raw["max_iterations"])
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"Profile {name!r}: max_iterations must be an integer, "
+                f"got {raw['max_iterations']!r}"
+            ) from exc
+    return raw
 
 
 # ---------------------------------------------------------------------------
