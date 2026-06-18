@@ -36,7 +36,9 @@ class TestToolsetIntersection:
 
     def test_all_requested_toolsets_available_on_parent(self):
         """LLM requests subset of parent tools — all pass through."""
-        parent = SimpleNamespace(enabled_toolsets=["terminal", "file", "web", "browser"])
+        parent = SimpleNamespace(
+            enabled_toolsets=["terminal", "file", "web", "browser"]
+        )
 
         parent_toolsets = set(parent.enabled_toolsets)
         requested = ["terminal", "web"]
@@ -190,6 +192,7 @@ _FAKE_AGENT_PROFILES = {
 # Minimal delegate_task config: no delegation-specific overrides.
 _BARE_DELEGATION_CFG = {}
 
+
 # A structurally valid result dict from _run_single_child (enough fields for
 # the post-run aggregation logic in delegate_task to not raise AttributeError).
 def _make_fake_child_result(task_index: int = 0) -> dict:
@@ -243,7 +246,9 @@ class TestDelegateTaskProfileWiring:
     hardcoded) and MUST pass after the fix (profile_name=resolved name).
     """
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_profile_forwarded_to_build_child_agent(
@@ -290,7 +295,9 @@ class TestDelegateTaskProfileWiring:
             "Profile toolsets must override the toolsets arg so the bypass activates."
         )
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_no_profile_leaves_profile_name_none(
@@ -326,12 +333,12 @@ class TestDelegateTaskProfileWiring:
             f"Expected profile_name=None for unprofiled call, got {kwargs.get('profile_name')!r}"
         )
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
-    def test_unknown_profile_returns_error(
-        self, mock_build, _mock_cfg, _mock_profiles
-    ):
+    def test_unknown_profile_returns_error(self, mock_build, _mock_cfg, _mock_profiles):
         """Unknown profile name must hard-fail (fail-closed) with tool_error.
 
         Why: A typo'd or injected profile name must not silently fall back to
@@ -351,6 +358,7 @@ class TestDelegateTaskProfileWiring:
         )
 
         import json
+
         parsed = json.loads(result)
         assert "error" in parsed, f"Expected error key in result, got {parsed!r}"
         mock_build.assert_not_called()
@@ -521,7 +529,10 @@ class TestBatchToolsetInjectionBlocked:
     PASS after the fix (child toolsets match profile declaration only).
     """
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles",
+        return_value=_PROFILES_WITH_NEXTCLOUD,
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_batch_injection_blocked_model_cannot_inject_evil_mcp_toolset(
@@ -569,7 +580,10 @@ class TestBatchToolsetInjectionBlocked:
             f"got {child_toolsets!r}"
         )
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles",
+        return_value=_PROFILES_WITH_NEXTCLOUD,
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_single_task_profile_toolsets_unchanged(
@@ -610,7 +624,10 @@ class TestBatchToolsetInjectionBlocked:
             f"profile_name must be 'documents', got {kwargs.get('profile_name')!r}"
         )
 
-    @patch("tools.delegate_tool._load_agent_profiles", return_value=_PROFILES_EMPTY_TOOLSETS)
+    @patch(
+        "tools.delegate_tool._load_agent_profiles",
+        return_value=_PROFILES_EMPTY_TOOLSETS,
+    )
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_empty_profile_toolsets_bypass_not_activated(
@@ -666,6 +683,7 @@ class TestBatchToolsetInjectionBlocked:
 # On the next delegate_task call the now-mutated list would be used as the
 # authoritative profile declaration, bypassing the intended toolset scope.
 # ---------------------------------------------------------------------------
+
 
 class TestProfileToolsetsAliasing:
     """Profile toolsets assignment must copy, not reference, the config list.
