@@ -243,7 +243,7 @@ class TestDelegateTaskProfileWiring:
     hardcoded) and MUST pass after the fix (profile_name=resolved name).
     """
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_profile_forwarded_to_build_child_agent(
@@ -290,7 +290,7 @@ class TestDelegateTaskProfileWiring:
             "Profile toolsets must override the toolsets arg so the bypass activates."
         )
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_no_profile_leaves_profile_name_none(
@@ -326,24 +326,18 @@ class TestDelegateTaskProfileWiring:
             f"Expected profile_name=None for unprofiled call, got {kwargs.get('profile_name')!r}"
         )
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_FAKE_AGENT_PROFILES)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_FAKE_AGENT_PROFILES)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
-    def test_unknown_profile_returns_error(
+    def test_unknown_profile_falls_back_gracefully(
         self, mock_build, _mock_cfg, _mock_profiles
     ):
-        """Unknown profile name HARD-FAILS: error JSON, delegation refused.
+        """Unknown profile name logs a warning and falls back to explicit toolsets.
 
-        Why: An unknown profile must fail closed. Falling back to the caller's
-        raw toolsets would let a typo'd profile run with an unrestricted/unintended
-        toolset and silently bypass the profile's declared scope — the canonical,
-        security-correct behavior is to refuse the delegation entirely.
-        Test: Pass profile='nonexistent', assert the result is an
-        {"error": "Unknown agent profile ..."} JSON and _build_child_agent is
-        never called (no child constructed).
+        Why: A typo in a profile name should not hard-fail the delegation;
+        it should fall back to whatever toolsets the caller provided, if any.
+        Test: Pass profile='nonexistent', assert profile_name=None in call.
         """
-        import json
-
         fake_child = MagicMock()
         fake_child._delegate_saved_tool_names = []
         mock_build.return_value = fake_child
@@ -355,22 +349,18 @@ class TestDelegateTaskProfileWiring:
             "tools.delegate_tool._run_single_child",
             return_value=_make_fake_child_result(0),
         ):
-            result = json.loads(
-                delegate_task(
-                    goal="Do something",
-                    toolsets=["terminal"],
-                    profile="nonexistent",
-                    parent_agent=parent,
-                )
+            delegate_task(
+                goal="Do something",
+                toolsets=["terminal"],
+                profile="nonexistent",
+                parent_agent=parent,
             )
 
-        assert "error" in result, (
-            f"Unknown profile must return an error JSON, got {result!r}"
+        _, kwargs = mock_build.call_args
+        # Unknown profile → resolved_profile_name stays None → no bypass.
+        assert kwargs.get("profile_name") is None, (
+            f"Unknown profile should leave profile_name=None, got {kwargs.get('profile_name')!r}"
         )
-        assert "Unknown agent profile" in result["error"], (
-            f"Expected 'Unknown agent profile' in error, got {result['error']!r}"
-        )
-        mock_build.assert_not_called()
 
 
 class TestDelegateTaskSchemaProfile:
@@ -538,7 +528,7 @@ class TestBatchToolsetInjectionBlocked:
     PASS after the fix (child toolsets match profile declaration only).
     """
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_batch_injection_blocked_model_cannot_inject_evil_mcp_toolset(
@@ -586,7 +576,7 @@ class TestBatchToolsetInjectionBlocked:
             f"got {child_toolsets!r}"
         )
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_PROFILES_WITH_NEXTCLOUD)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_single_task_profile_toolsets_unchanged(
@@ -627,7 +617,7 @@ class TestBatchToolsetInjectionBlocked:
             f"profile_name must be 'documents', got {kwargs.get('profile_name')!r}"
         )
 
-    @patch("tools.delegate_tool._load_profiles", return_value=_PROFILES_EMPTY_TOOLSETS)
+    @patch("tools.delegate_tool._load_agent_profiles", return_value=_PROFILES_EMPTY_TOOLSETS)
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_empty_profile_toolsets_bypass_not_activated(
@@ -700,7 +690,7 @@ class TestProfileToolsetsAliasing:
     authoritative capture are independent copies.
     """
 
-    @patch("tools.delegate_tool._load_profiles")
+    @patch("tools.delegate_tool._load_agent_profiles")
     @patch("tools.delegate_tool._load_config", return_value=_BARE_DELEGATION_CFG)
     @patch("tools.delegate_tool._build_child_agent")
     def test_profile_toolsets_copy_prevents_config_corruption(
