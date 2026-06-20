@@ -308,8 +308,13 @@ def compress_context(
         ``(compressed_messages, new_system_prompt)`` tuple.  When
         compression aborts (aux LLM failed to produce a usable summary),
         returns the original messages unchanged and the existing system
-        prompt — the session is NOT rotated.  Callers should detect the
-        no-op via ``len(returned) == len(input)`` and stop the retry loop.
+        prompt — the session is NOT rotated.  A successful pass may reduce
+        the message count *or* keep it unchanged while materially shrinking
+        the payload (tool-result pruning, in-place summarisation).  Callers
+        must therefore not treat ``len(returned) == len(input)`` alone as a
+        no-op: compare post-compression token estimates as well, and only
+        stop the retry loop when neither message count nor token count
+        dropped (#39550).
     """
     # Lazy feasibility check — run the auxiliary-provider probe + context
     # length lookup just-in-time on the first compression attempt instead of
@@ -456,7 +461,9 @@ def compress_context(
     # the compressor returns the input messages unchanged.  Surface the
     # error to the user, skip the session-rotation work entirely (no
     # session has logically ended), and let auto-compress callers detect
-    # the no-op via len(returned) == len(input).
+    # the no-op: on a true abort both the message count and the token
+    # estimate are unchanged, so the callers' "neither dropped" check
+    # (#39550) stops the retry loop.
     if getattr(agent.context_compressor, "_last_compress_aborted", False):
         _err = getattr(agent.context_compressor, "_last_summary_error", None) or "unknown error"
         if getattr(agent, "_last_compression_summary_warning", None) != _err:
