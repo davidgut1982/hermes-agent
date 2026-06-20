@@ -152,7 +152,7 @@ jobs:
           # install-hook file only when its ADDED lines introduce code-execution
           # indicators (exec/eval/base64/subprocess/network), which is exactly the
           # litellm-style payload shape. Benign build-config edits pass; a hidden
-          # `exec(base64.b64decode(...))` still trips the scanner.
+          # A hidden exec+base64 payload is still caught by this scanner.
           SETUP_FILES=$(git diff --name-only "$BASE"..."$HEAD" | grep -E '^(setup\.py|setup\.cfg|sitecustomize\.py|usercustomize\.py|__init__\.pth)$' || true)
           SETUP_HITS=""
           if [ -n "$SETUP_FILES" ]; then
