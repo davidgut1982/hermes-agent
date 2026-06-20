@@ -1609,6 +1609,12 @@ AUTHOR_MAP = {
     "philip.a.dsouza@gmail.com": "PhilipAD",  # direct email match
     "qs2816661685@gmail.com": "qingshan89",  # PR #46895 co-author (desktop remote artifact download)
     "yspdev@gmail.com": "AJ",  # PR #44510 co-author (desktop named-profile boot loop)
+    "daniel.laforce@argobox.com": "KeyArgo",  # contributor attribution
+    "ilonagaja509-glitch@users.noreply.github.com": "ilonagaja509-glitch",  # contributor attribution
+    "konsisumer@users.noreply.github.com": "konsisumer",  # contributor attribution
+    "naqerl@users.noreply.github.com": "naqerl",  # contributor attribution
+    "redpiggy-cyber@users.noreply.github.com": "RedPiggy",  # contributor attribution
+    "vinoth12940@users.noreply.github.com": "Vinoth",  # contributor attribution
 }
 
 
