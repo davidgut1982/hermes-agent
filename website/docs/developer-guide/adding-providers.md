@@ -390,6 +390,7 @@ Use this if the provider is standard chat completions.
 - [ ] model catalog added in `hermes_cli/models.py`
 - [ ] runtime branch added in `hermes_cli/runtime_provider.py`
 - [ ] CLI wiring added in `hermes_cli/main.py` (setup.py inherits automatically)
+- [ ] `_model_flow_<provider>()` scrubs stale inline credentials via `clear_model_endpoint_credentials()`
 - [ ] aux model added in `agent/auxiliary_client.py`
 - [ ] context lengths added in `agent/model_metadata.py`
 - [ ] runtime / CLI tests updated
@@ -438,6 +439,10 @@ Fields like provider routing belong only on the providers that support them.
 
 Both flows need to know about the provider.
 
+### 8. Leaving stale inline credentials when switching providers
+
+`config["model"]` can carry inline `api_key`/`api_mode`/`base_url` left over from a previously selected custom endpoint. A built-in provider resolves credentials from env vars, `auth.json`, or the credential pool, so a new `_model_flow_<provider>()` must scrub these via `clear_model_endpoint_credentials(model)` before saving config — otherwise the stale custom-endpoint values override the new provider's transport and key. Pass `clear_api_mode=False` when the provider sets its own `api_mode` at flow time.
+
 ## Good search targets while implementing
 
 If you are hunting for all the places a provider touches, search these symbols:
@@ -447,6 +452,7 @@ If you are hunting for all the places a provider touches, search these symbols:
 - `_PROVIDER_MODELS`
 - `resolve_runtime_provider`
 - `_model_flow_`
+- `clear_model_endpoint_credentials`
 - `select_provider_and_model`
 - `api_mode`
 - `_API_KEY_PROVIDER_AUX_MODELS`

@@ -102,7 +102,7 @@ When you save via the dashboard, Hermes writes to `~/.hermes/config.yaml`:
 model:
   provider: openrouter
   default: anthropic/claude-opus-4.7
-  base_url: ''        # cleared on provider switch
+  base_url: ''        # base_url + stale inline api_key cleared on provider switch
   api_mode: chat_completions
 ```
 
