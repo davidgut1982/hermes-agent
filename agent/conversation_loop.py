@@ -441,6 +441,42 @@ _CONTENT_POLICY_RECOVERY_HINT = (
 )
 
 
+# Private flags marking synthetic scaffolding the empty-response recovery /
+# thinking-prefill paths inject into the live ``messages`` list. These are
+# transport-internal and must never survive into persisted/next-turn history.
+SYNTHETIC_SCAFFOLDING_FLAGS = (
+    "_empty_recovery_synthetic",
+    "_empty_terminal_sentinel",
+    "_thinking_prefill",
+)
+
+
+def _strip_synthetic_scaffolding(messages: List[Dict]) -> int:
+    """Remove all synthetic recovery scaffolding from a message list in place.
+
+    Why: The short-circuit early-return bypasses ``finalize_turn`` /
+    ``_persist_session`` (whose trailing-only strip would otherwise clean the
+    tail). Leftover ``_empty_recovery_synthetic`` etc. messages sitting *before*
+    the current real user turn would survive into persisted history and trigger
+    "Repaired N message-alternation violations" every subsequent turn.
+    What: Drops every dict flagged with any of ``SYNTHETIC_SCAFFOLDING_FLAGS``,
+    regardless of position; returns the number removed.
+    Test: Pass a list with mid-list synthetic messages → assert they are gone
+    and the count matches; see
+    tests/run_agent/test_short_circuit_scaffolding_cleanup.py.
+    """
+    before = len(messages)
+    messages[:] = [
+        m
+        for m in messages
+        if not (
+            isinstance(m, dict)
+            and any(m.get(flag) for flag in SYNTHETIC_SCAFFOLDING_FLAGS)
+        )
+    ]
+    return before - len(messages)
+
+
 def _content_policy_blocked_result(
     messages: List[Dict],
     api_call_count: int,
@@ -533,6 +569,40 @@ def run_conversation(
     _should_review_memory = _ctx.should_review_memory
     _plugin_user_context = _ctx.plugin_user_context
     _ext_prefetch_cache = _ctx.ext_prefetch_cache
+
+    # Short-circuit: a ``pre_llm_call`` plugin answered this turn deterministically
+    # (e.g. a /weather fast-path). Return the standard terminal dict with zero
+    # LLM calls — the tool loop never runs.
+    if _ctx.short_circuit_response is not None:
+        # The short-circuit early-return bypasses ``finalize_turn`` (and thus
+        # ``_persist_session`` / its scaffolding strip). If a prior empty-
+        # response nudge cycle left synthetic recovery scaffolding
+        # (``_empty_recovery_synthetic`` / ``_empty_terminal_sentinel`` /
+        # ``_thinking_prefill``) in the incoming history, it would otherwise
+        # survive into the returned/persisted history. The stale synthetic
+        # ``user(nudge)`` then collides with the next turn's real user message
+        # every turn, producing "Repaired N message-alternation violations"
+        # spam. Drop ALL synthetic-flagged messages here (not just the tail —
+        # the current real user turn already sits after the leftover
+        # scaffolding) before mirroring the normal loop's well-formed
+        # assistant turn.
+        _strip_synthetic_scaffolding(messages)
+        # Mirror the normal loop: history must end with a well-formed assistant
+        # turn so callers that persist ``messages`` as next-turn history keep
+        # alternating roles. ``messages`` currently ends with the user turn
+        # (appended in build_turn_context); append the assistant reply here —
+        # in exactly ONE place. No caller separately appends ``final_response``
+        # as another assistant turn (gateway/api_server fallbacks only fire when
+        # the returned messages list is empty, which it never is now).
+        messages.append(
+            {"role": "assistant", "content": _ctx.short_circuit_response}
+        )
+        return {
+            "final_response": _ctx.short_circuit_response,
+            "messages": messages,
+            "api_calls": 0,
+            "completed": True,
+        }
 
     # Main conversation loop counters (pure locals consumed by the loop below).
     api_call_count = 0
