@@ -14794,7 +14794,8 @@ def main(
             # model's vision input.
             single_query_image_urls: list[str] = []
             _kanban_task_id = os.environ.get("HERMES_KANBAN_TASK", "").strip()
-            if _kanban_task_id:                try:
+            if _kanban_task_id:
+                try:
                     from hermes_cli import kanban_db as _kb
                     from agent.image_routing import extract_image_refs as _extract_refs
 
