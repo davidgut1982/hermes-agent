@@ -17584,6 +17584,7 @@ def _start_cron_ticker(stop_event: threading.Event, adapters=None, loop=None, in
     """
     from gateway.platforms.base import cleanup_image_cache, cleanup_document_cache
     from hermes_cli.debug import _sweep_expired_pastes
+    from cron.scheduler import tick as cron_tick
 
     IMAGE_CACHE_EVERY = 60   # ticks — once per hour at default 60s interval
     CHANNEL_DIR_EVERY = 5    # ticks — every 5 minutes
