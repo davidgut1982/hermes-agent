@@ -3172,6 +3172,84 @@ class TestMcpParallelToolBatch:
                 _mcp_tool_server_names.pop("mcp_github_list_repos", None)
 
 
+class TestTerminalPrefixParallelToolBatch:
+    """Integration test: _should_parallelize_tool_batch respects the operator
+    ``terminal.parallel_safe_prefixes`` allowlist.
+
+    Why: terminal calls always hit the not-parallel-safe branch and force the
+    whole batch serial. Operators who run read-only one-shot CLI lookups (e.g.
+    status/query commands) want those batched concurrently. The allowlist is
+    config-driven and bridged to the ``TERMINAL_PARALLEL_SAFE_PREFIXES`` env
+    var (JSON list) — mirroring the per-server ``supports_parallel_tool_calls``
+    MCP opt-in. Empty/unset = current behavior preserved (serial).
+    What: drives the public gate and asserts the boolean it returns.
+    Test: mock the env allowlist, build terminal tool-call batches, assert the
+    gate parallelizes only matching commands and never regresses the default.
+    """
+
+    def test_terminal_batch_parallel_when_prefix_matches(self, monkeypatch):
+        """Two terminal calls whose commands match a configured prefix parallelize."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 2"}', call_id="c2")
+        assert _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_batch_serial_when_prefixes_unset(self, monkeypatch):
+        """Regression: with no allowlist, terminal batches stay sequential."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.delenv("TERMINAL_PARALLEL_SAFE_PREFIXES", raising=False)
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 2"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_batch_serial_when_prefixes_empty(self, monkeypatch):
+        """Regression: an explicit empty allowlist behaves like unset (serial)."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", "[]")
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 2"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_batch_serial_when_command_not_matching(self, monkeypatch):
+        """A terminal command outside the allowlist forces the batch serial."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"rm -rf /"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_prefix_reads_cmd_key(self, monkeypatch):
+        """The command is extracted from either the ``cmd`` or ``command`` key."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"cmd":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"cmd":"mytool issue 2"}', call_id="c2")
+        assert _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_mixed_terminal_and_never_parallel_serial(self, monkeypatch):
+        """A matching terminal call mixed with a never-parallel tool stays serial."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="clarify", arguments='{"question":"which?"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_single_terminal_call_short_circuits_serial(self, monkeypatch):
+        """A batch of one is always serial regardless of the allowlist."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        assert not _should_parallelize_tool_batch([tc1])
+
+
 class TestHandleMaxIterations:
     def test_returns_summary(self, agent):
         resp = _mock_response(content="Here is a summary of what I did.")
