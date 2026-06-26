@@ -236,6 +236,7 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
 | `TERMINAL_PERSISTENT_SHELL` | Enable persistent shell for non-local backends (default: `true`). Also settable via `terminal.persistent_shell` in config.yaml |
 | `TERMINAL_LOCAL_PERSISTENT` | Enable persistent shell for local backend (default: `false`) |
 | `TERMINAL_SSH_PERSISTENT` | Override persistent shell for SSH backend (default: follows `TERMINAL_PERSISTENT_SHELL`) |
+| `TERMINAL_PARALLEL_SAFE_PREFIXES` | JSON array of read-only `terminal` command prefixes (e.g. `'["git status","ls"]'`) the agent may run concurrently within a parallel tool-call batch. A prefix matches only on a word boundary, and commands containing shell metacharacters (`&`, `;`, `\|`, backtick, `$(`, `>`, `<`) are never parallelized. Empty/unset (default) keeps every `terminal` call serial. Also settable via `terminal.parallel_safe_prefixes` in config.yaml |
 
 ## Messaging
 

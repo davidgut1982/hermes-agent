@@ -1379,6 +1379,7 @@ if _config_path.exists():
                 "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
                 "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
                 "sandbox_dir": "TERMINAL_SANDBOX_DIR",
+                "parallel_safe_prefixes": "TERMINAL_PARALLEL_SAFE_PREFIXES",
                 "persistent_shell": "TERMINAL_PERSISTENT_SHELL",
             }
             for _cfg_key, _env_var in _terminal_env_map.items():
@@ -17584,6 +17585,7 @@ def _start_cron_ticker(stop_event: threading.Event, adapters=None, loop=None, in
     """
     from gateway.platforms.base import cleanup_image_cache, cleanup_document_cache
     from hermes_cli.debug import _sweep_expired_pastes
+    from cron.scheduler import tick as cron_tick
 
     IMAGE_CACHE_EVERY = 60   # ticks — once per hour at default 60s interval
     CHANNEL_DIR_EVERY = 5    # ticks — every 5 minutes

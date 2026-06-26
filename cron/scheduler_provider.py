@@ -56,6 +56,7 @@ class CronScheduler(ABC):
         adapters: Any = None,
         loop: Any = None,
         interval: int = 60,
+        registry: Any = None,
     ) -> None:
         """Begin firing due jobs.
 
@@ -163,7 +164,7 @@ class InProcessCronScheduler(CronScheduler):
     def name(self) -> str:
         return "builtin"
 
-    def start(self, stop_event, *, adapters=None, loop=None, interval=60):
+    def start(self, stop_event, *, adapters=None, loop=None, interval=60, registry=None):
         import logging
         from cron.scheduler import tick as cron_tick
 

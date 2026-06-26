@@ -91,7 +91,7 @@ def _launch_cwd_for_session(source: str) -> Optional[str]:
 
 # OpenAI lazy proxy + safe stdio + proxy URL helpers — see agent/process_bootstrap.py.
 # `OpenAI` is re-exported here so `patch("run_agent.OpenAI", ...)` in tests works.
-# The other `# noqa: F401` re-exports below cover names accessed via
+# The other `noqa: F401` re-exports below cover names accessed via
 # `mock.patch("run_agent.<X>")`, `from run_agent import <X>` in production
 # siblings, or the `_ra().<X>` indirection in agent/system_prompt.py — none
 # of which ruff's in-module usage scan can see.
@@ -186,6 +186,9 @@ from agent.trajectory import (
 )
 from agent.tool_dispatch_helpers import (
     _should_parallelize_tool_batch,
+    _is_terminal_call_parallel_safe,  # noqa: F401  # re-exported for tests that `from run_agent import _is_terminal_call_parallel_safe`
+    parallel_batch_active,  # noqa: F401  # re-exported for tests that `from run_agent import parallel_batch_active`
+    parallel_batch_scope,  # noqa: F401  # re-exported for tests that `from run_agent import parallel_batch_scope`
     _is_destructive_command,  # noqa: F401  # re-exported for tests that access `run_agent._is_destructive_command`
     _extract_parallel_scope_path,  # noqa: F401  # re-exported for tests that `from run_agent import _extract_parallel_scope_path`
     _paths_overlap,  # noqa: F401  # re-exported for tests that `from run_agent import _paths_overlap`

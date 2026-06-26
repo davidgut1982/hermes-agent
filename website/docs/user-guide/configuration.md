@@ -117,6 +117,7 @@ terminal:
   timeout: 180      # Per-command timeout in seconds
   home_mode: auto   # auto | real | profile — subprocess HOME policy
   env_passthrough: []  # Env var names to forward to sandboxed execution (terminal + execute_code)
+  parallel_safe_prefixes: []  # Read-only command prefixes the agent may run in parallel batches (empty = all terminal calls serial)
   singularity_image: "docker://nikolaik/python-nodejs:python3.11-nodejs20"  # Container image for Singularity backend
   modal_image: "nikolaik/python-nodejs:python3.11-nodejs20"                 # Container image for Modal backend
   daytona_image: "nikolaik/python-nodejs:python3.11-nodejs20"               # Container image for Daytona backend
@@ -551,6 +552,30 @@ Commands that require `stdin_data` or sudo automatically fall back to one-shot m
 :::
 
 See [Code Execution](features/code-execution.md) and the [Terminal section of the README](features/tools.md) for details on each backend.
+
+### Parallel-safe terminal commands
+
+`terminal` calls run serially by default: a tool-call batch containing one is never parallelized, because terminal commands share one persistent-shell session and concurrent calls could race its session state. To let specific **read-only** commands run alongside other tools in a parallel batch, list their command prefixes:
+
+```yaml
+terminal:
+  parallel_safe_prefixes:        # empty (default) = every terminal call runs serially
+    - "git status"
+    - "git log"
+    - "ls"
+```
+
+```bash
+export TERMINAL_PARALLEL_SAFE_PREFIXES='["git status","git log","ls"]'
+```
+
+Matching rules, designed to keep the allowlist tight:
+
+- A prefix matches only on a **word boundary** — `ls` matches `ls -l` but not `lsof`.
+- A command containing shell metacharacters (`&`, `;`, `|`, backtick, `$(`, `>`, `<`, newline) is never parallelized, since the prefix can only vouch for the first token.
+- Allowlisted commands run on a snapshot-free execution path inside the batch, so they do not mutate the persistent-shell session.
+
+Only allowlist commands that are genuinely read-only. Terminal calls have no declarable path footprint, so an allowlisted command that reads a file a batched `write_file` is concurrently writing may observe a torn read — do not allowlist commands that read paths other tools mutate. This mirrors the per-server [`supports_parallel_tool_calls`](features/mcp.md) opt-in for MCP tools.
 
 ## Skill Settings
 
