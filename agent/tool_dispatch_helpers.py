@@ -136,20 +136,17 @@ def _is_terminal_call_parallel_safe(function_args: dict) -> bool:
     Why: ``terminal`` is never unconditionally parallel-safe, so a batch
     containing one is forced serial; this gates the exception on an explicit
     operator allowlist of read-only command prefixes.
-    What: returns True iff an allowlist is configured AND the call's command
-    string (read from either the ``command`` or ``cmd`` key) starts with one of
-    the configured prefixes; returns False when the allowlist is empty/unset or
-    no command is present.
+    What: returns True iff an allowlist is configured AND the call's
+    ``command`` string starts with one of the configured prefixes; returns
+    False when the allowlist is empty/unset or no command is present.
     Test: with prefixes ``("foo",)`` -> ``{"command": "foo --bar"}`` True,
-    ``{"cmd": "foo x"}`` True, ``{"command": "rm -rf /"}`` False; with no
-    prefixes configured -> always False.
+    ``{"command": "rm -rf /"}`` False; with no prefixes configured -> always
+    False.
     """
     prefixes = _terminal_parallel_safe_prefixes()
     if not prefixes:
         return False
     command = function_args.get("command")
-    if not isinstance(command, str) or not command:
-        command = function_args.get("cmd")
     if not isinstance(command, str) or not command:
         return False
     stripped = command.lstrip()

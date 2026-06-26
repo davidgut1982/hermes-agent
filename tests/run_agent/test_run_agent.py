@@ -3223,14 +3223,47 @@ class TestTerminalPrefixParallelToolBatch:
         tc2 = _mock_tool_call(name="terminal", arguments='{"command":"rm -rf /"}', call_id="c2")
         assert not _should_parallelize_tool_batch([tc1, tc2])
 
-    def test_terminal_prefix_reads_cmd_key(self, monkeypatch):
-        """The command is extracted from either the ``cmd`` or ``command`` key."""
+    def test_mixed_terminal_and_write_file_parallel_when_paths_disjoint(
+        self, monkeypatch
+    ):
+        """An allowlisted terminal call batched with a path-scoped write_file to a
+        non-overlapping path parallelizes — closing the gap between the terminal
+        branch and the ``_PATH_SCOPED_TOOLS`` reserved-paths logic."""
         from run_agent import _should_parallelize_tool_batch
 
         monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
-        tc1 = _mock_tool_call(name="terminal", arguments='{"cmd":"mytool issue 1"}', call_id="c1")
-        tc2 = _mock_tool_call(name="terminal", arguments='{"cmd":"mytool issue 2"}', call_id="c2")
+        tc1 = _mock_tool_call(
+            name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1"
+        )
+        tc2 = _mock_tool_call(
+            name="write_file",
+            arguments='{"path":"src/a.py","content":"print(1)"}',
+            call_id="c2",
+        )
         assert _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_mixed_terminal_and_write_file_serial_when_paths_overlap(
+        self, monkeypatch
+    ):
+        """Two allowlisted terminal calls plus write_files to overlapping paths force
+        the batch serial via the reserved-paths overlap check."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(
+            name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1"
+        )
+        tc2 = _mock_tool_call(
+            name="write_file",
+            arguments='{"path":"src/a.py","content":"print(1)"}',
+            call_id="c2",
+        )
+        tc3 = _mock_tool_call(
+            name="write_file",
+            arguments='{"path":"src/a.py","content":"print(2)"}',
+            call_id="c3",
+        )
+        assert not _should_parallelize_tool_batch([tc1, tc2, tc3])
 
     def test_mixed_terminal_and_never_parallel_serial(self, monkeypatch):
         """A matching terminal call mixed with a never-parallel tool stays serial."""
