@@ -27,8 +27,16 @@ same gate. Terminal commands get the analogous, prefix-based opt-in.
 - **`agent/tool_dispatch_helpers.py`** — new `_is_terminal_call_parallel_safe()`
   reads the allowlist from the `TERMINAL_PARALLEL_SAFE_PREFIXES` env var (a JSON
   list, bridged from `terminal.parallel_safe_prefixes`), and returns `True` iff
-  the call's `command` string starts with a configured prefix. Empty/unset/
-  malformed → `False`.
+  the call's `command` matches a configured prefix on a **word boundary** AND is
+  free of shell metacharacters. Empty/unset/malformed → `False`.
+  - **Word-boundary match (not bare `startswith`):** the command must equal a
+    prefix or be `prefix` followed by whitespace, so prefix `ls` matches `ls -l`
+    but **not** `lsof`, and `git` does not match the mutating `git push` unless
+    `git` itself is allowlisted with intent.
+  - **Metacharacter rejection:** any of `&  ;  |  \`  $(  >  <` or a newline
+    (covering `&&` / `||`) in the command means the prefix can no longer bound
+    what actually runs (e.g. `mytool x && rm -rf /`), so the call is rejected
+    from the parallel path and runs **serially** — the safer default.
 - **`_should_parallelize_tool_batch`** — adds a `terminal` branch gated on that
   helper. All existing short-circuits (`_NEVER_PARALLEL_TOOLS`, `len <= 1`,
   arg-parse failures, non-dict args, path-scoped overlap) remain ordered ahead
@@ -37,6 +45,47 @@ same gate. Terminal commands get the analogous, prefix-based opt-in.
   terminal config defaults and bridge it to `TERMINAL_PARALLEL_SAFE_PREFIXES`
   (the existing bridge already JSON-encodes list values), matching every other
   `terminal.* → TERMINAL_*` mapping.
+
+## Concurrency safety — persistent-shell snapshot race (upstream #38249)
+
+Concurrent `terminal` calls share one persistent-shell environment (resolved by
+`task_id`). `BaseEnvironment.execute()` persists session state by
+**read-modify-write of per-session snapshot/cwd files** (`_snapshot_path` /
+`_cwd_file`): each call sources the snapshot, runs, then re-dumps `export -p`
+back to the snapshot and writes `pwd` to the cwd file. Two batched calls running
+on the existing `ThreadPoolExecutor` would race that read-modify-write and
+corrupt the session `PATH` — this is upstream bug **#38249**. Because this
+feature is what *introduces* the concurrency, it must mitigate the race.
+
+**Mitigation (stateless execution path):** when a `terminal` call is admitted to
+a concurrent batch (i.e. it is a declared stateless read-only lookup matching the
+allowlist), it executes on a **snapshot-free path** instead of the
+session-persisting one:
+
+- `tool_executor.execute_tool_calls_concurrent` marks the batch with a
+  `parallel_batch_scope()` ContextVar **before** submitting work, so each worker
+  thread inherits the flag when it copies the parent context.
+- `terminal_tool` reads `parallel_batch_active()` and calls
+  `env.execute(..., persist_session=False)`.
+- `BaseEnvironment.execute(persist_session=False)` builds a wrapped script that
+  **neither sources nor rewrites** the snapshot and **does not write** the cwd
+  file, and it **skips the cwd read-back** so `self.cwd` is not mutated. The
+  shared session state is never touched, so the race is removed **by
+  construction** — no lock, no serialization of the command itself.
+
+This was chosen over a snapshot-I/O lock because it matches the feature's
+semantics exactly: allowlisted commands are declared stateless read-only
+lookups that have no need for session cwd/env persistence, so opting them out of
+the shared snapshot is correct, not merely a workaround. The path is off by
+default and only engages when prefixes are configured AND a call is in a
+concurrent batch; remote per-call transports (Modal) accept and ignore the flag.
+
+**Accepted scope (documented in code):** terminal calls are not path-scoped and
+reserve no `reserved_paths` entry, so an allowlisted read-only command could in
+principle observe a torn read of a file a batched `write_file` is concurrently
+writing. This is accepted by design — terminal commands have no declarable path
+footprint and operators allowlist only read-only lookups; forcing every
+terminal+write_file batch serial would defeat the feature's main use case.
 
 ## Before / After
 
@@ -80,7 +129,7 @@ behavior.
 
 ## Tests
 
-Added `TestTerminalPrefixParallelToolBatch` driving the public
+`TestTerminalPrefixParallelToolBatch` drives the public
 `_should_parallelize_tool_batch`, mocking the allowlist at the env-var boundary:
 
 - 2 matching `terminal` calls, prefix configured → parallel (True)
@@ -92,13 +141,33 @@ Added `TestTerminalPrefixParallelToolBatch` driving the public
 - matching `terminal` + a `_NEVER_PARALLEL` tool → serial (False)
 - single call (`len <= 1`) → serial (False)
 
+Added for the prefix-match tightening:
+
+- **word boundary** — prefix `ls` does **not** match `lsof` (serial); matches
+  `ls -l` and bare `ls` (parallel)
+- **metacharacter rejection** — `gh-axi issue view N` parallelizes, but
+  `gh-axi x && rm -rf /` is forced serial; a unit matrix asserts each of
+  `&& || ; | \` $( > <` and newline individually rejects an otherwise-matching
+  command
+
+Added for the concurrency-safety mitigation (#38249):
+
+- `parallel_batch_scope()` sets the `parallel_batch_active()` ContextVar and it
+  propagates into a copied (worker-thread) context, then resets on exit
+- `BaseEnvironment._wrap_command(persist_session=False)` emits a script that
+  references **neither** `_snapshot_path` **nor** `_cwd_file`; the default still
+  references both
+- `execute(persist_session=False)` does **not** mutate `self.cwd` (default path
+  does), and 8 concurrent stateless calls reporting different cwds leave the
+  shared `self.cwd` unchanged — proving the snapshot/cwd race is removed
+
 ```
 $ pytest tests/run_agent/test_run_agent.py::TestTerminalPrefixParallelToolBatch \
-         tests/run_agent/test_run_agent.py::TestMcpParallelToolBatch \
-         tests/agent/test_tool_dispatch_helpers.py -q
-.......................................                                  [100%]
-39 passed in 5.50s
+         tests/tools/test_base_environment.py -q
+.................................................                        [100%]
+35 passed
 ```
 
-No behavior change when the allowlist is empty; the existing MCP and
-path-overlap gate tests are unaffected.
+No behavior change when the allowlist is empty; the existing MCP, path-overlap,
+and environment tests are unaffected (full `tests/run_agent/test_run_agent.py`:
+400 passed; touched environment suites: 135 passed).
