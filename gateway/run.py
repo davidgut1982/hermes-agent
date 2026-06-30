@@ -1171,14 +1171,6 @@ from hermes_constants import get_hermes_home
 from utils import atomic_json_write, atomic_yaml_write, base_url_host_matches, is_truthy_value
 _hermes_home = get_hermes_home()
 
-# Pre-LLM intent fast-path (weather, …).  Guarded so a missing module is a safe
-# no-op that always defers to the normal agent pipeline.
-try:
-    from intent_fast_path import _intent_fast_path
-except ImportError:  # pragma: no cover - defensive fallback
-    async def _intent_fast_path(text):  # type: ignore[misc]
-        return None
-
 # Load environment variables from ~/.hermes/.env first.
 # User-managed env files should override stale shell exports on restart.
 from dotenv import load_dotenv  # noqa: F401  # backward-compat for tests that monkeypatch this symbol
@@ -3257,39 +3249,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if recovered is None:
             return source
         return dataclasses.replace(source, thread_id=recovered)
-
-    def _apply_smart_routing(self, message_text: str, model: str, runtime_kwargs: dict, smart_cfg: dict, user_config: dict) -> tuple[str, dict]:
-        """Classify message complexity and route to cheap_model if simple.
-
-        Why: Cuts cost by sending trivial gateway messages (status/show/check)
-        to a cheap model before the agent runs, without changing behavior for
-        complex requests or manual /model overrides.
-        What: Returns (cheap_model, swapped_kwargs) when the message is short and
-        free of complexity keywords; otherwise returns (model, kwargs) unchanged.
-        Test: Assert a short "status" message returns cheap_model; a message
-        containing "implement" or longer than max_simple_chars returns model unchanged.
-        """
-        cheap_model = smart_cfg.get("cheap_model", "")
-        if not cheap_model or cheap_model == model:
-            return model, runtime_kwargs
-
-        text = (message_text or "").strip()
-        max_chars = int(smart_cfg.get("max_simple_chars", 200))
-        max_words = int(smart_cfg.get("max_simple_words", 40))
-        complexity_kw = [k.lower() for k in smart_cfg.get("complexity_keywords", [])]
-        text_lower = text.lower()
-
-        # Complexity signals override simple signals
-        if any(kw in text_lower for kw in complexity_kw):
-            return model, runtime_kwargs
-
-        word_count = len(text.split())
-        if len(text) <= max_chars and word_count <= max_words:
-            cheap_kwargs = dict(runtime_kwargs)
-            cheap_kwargs["model"] = cheap_model
-            return cheap_model, cheap_kwargs
-
-        return model, runtime_kwargs
 
     def _resolve_session_agent_runtime(
         self,
@@ -8562,22 +8521,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             if self._should_send_telegram_lobby_reminder(source):
                 return self._telegram_topic_root_lobby_message()
             return None
-
-        # ── Pre-LLM intent fast-path ──────────────────────────────────
-        # Deterministic intents (weather, …) answer here in ~0.3-0.5s,
-        # before we claim the session sentinel or run any agent.  This is
-        # downstream of auth and Telegram mention-gating / _should_process
-        # (those ran earlier), so those guarantees are preserved.  We skip
-        # slash commands (handled above) and empty text, and on ANY doubt
-        # the fast-path returns None and we fall through untouched.  The
-        # session lock below is intentionally NOT taken for a fast-path
-        # reply, so a fast weather answer never blocks a concurrent real
-        # agent turn for the same session.
-        _fp_msg = (event.text or "").strip()
-        if _fp_msg and not _fp_msg.startswith("/"):
-            _fp_result = await _intent_fast_path(_fp_msg)
-            if _fp_result is not None:
-                return _fp_result
 
         # ── Claim this session before any await ───────────────────────
         # Between here and _run_agent registering the real AIAgent, there
@@ -15650,15 +15593,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     "run_agent resolved: model=%s provider=%s session=%s",
                     model, runtime_kwargs.get("provider"), session_key or "",
                 )
-
-                # smart_model_routing: auto-classify complexity before agent dispatch
-                if not self._session_model_overrides.get(session_key):
-                    _smart_cfg = (user_config or {}).get("smart_model_routing") or {}
-                    _platform = getattr(source, "platform", None)
-                    if _smart_cfg.get("enabled") and str(_platform) != "Platform.LOCAL":
-                        model, runtime_kwargs = self._apply_smart_routing(
-                            message, model, runtime_kwargs, _smart_cfg, user_config
-                        )
             except Exception as exc:
                 return {
                     "final_response": f"⚠️ Provider authentication failed: {exc}",

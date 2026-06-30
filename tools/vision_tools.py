@@ -8,8 +8,11 @@ Nous, Codex, native Anthropic, or a custom OpenAI-compatible endpoint.
 
 Available tools:
 - vision_analyze_tool: Analyze images from URLs with custom prompts
+
+Internal helpers (no longer exposed as an agent tool — agents use ocr-axi):
 - ocr_image_tool: Verbatim OCR transcription of images/PDFs via a forced
-  direct OpenRouter call to a strong vision model (qwen3-vl by default)
+  direct OpenRouter call to a strong vision model (qwen3-vl by default).
+  Retained for the gateway inbound-image OCR routing (_enrich_message_with_ocr).
 
 Features:
 - Downloads images from URLs and converts to base64 for API compatibility
@@ -1623,46 +1626,6 @@ registry.register(
     check_fn=check_vision_requirements,
     is_async=True,
     emoji="👁️",
-)
-
-
-OCR_IMAGE_SCHEMA = {
-    "name": "ocr_image",
-    "description": (
-        "Transcribe ALL text in an image or PDF verbatim — no translation, no "
-        "correction, no summary. Use this whenever the user wants the literal "
-        "text out of an image/scan/screenshot/PDF (\"transcribe this\", \"read "
-        "this\", \"what does this say\", \"ocr\"). Accepts a URL or a local "
-        "file path. PDFs are rasterized page-by-page and each page transcribed. "
-        "Returns the original-language text exactly as written. For describing "
-        "or answering questions about an image, use vision_analyze instead."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "image_url": {
-                "type": "string",
-                "description": "Image/PDF URL (http/https) or local file path to transcribe."
-            }
-        },
-        "required": ["image_url"]
-    }
-}
-
-
-def _handle_ocr_image(args: Dict[str, Any], **kw: Any) -> Awaitable[str]:
-    image_url = args.get("image_url", "")
-    return ocr_image_tool(image_url)
-
-
-registry.register(
-    name="ocr_image",
-    toolset="vision",
-    schema=OCR_IMAGE_SCHEMA,
-    handler=_handle_ocr_image,
-    check_fn=check_vision_requirements,
-    is_async=True,
-    emoji="🔤",
 )
 
 

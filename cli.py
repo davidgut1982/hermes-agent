@@ -14008,28 +14008,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         n = len(submit_images)
                         _cprint(f"  {_DIM}📎 {n} image{'s' if n > 1 else ''} attached{_RST}")
 
-                    # ── Pre-LLM deterministic intent fast-path (REPL parity) ──
-                    # The single-query (-q) and oneshot (-z) paths answer a small
-                    # set of deterministic intents (weather, time/date) directly
-                    # from a cheap HTTP API, bypassing the agent.  The interactive
-                    # REPL historically did NOT, so a typed "what is the weather?"
-                    # reached the LLM and drifted/hallucinated.  Mirror the gate
-                    # exactly: skip on empty/slash/image/kanban/goal/disabled, and
-                    # on ANY doubt fall through to the agent unchanged.
-                    try:
-                        from intent_fast_path import try_fast_path_reply as _fp_repl
-                        _fp_out = _fp_repl(
-                            user_input, has_images=bool(submit_images)
-                        )
-                    except Exception:
-                        _fp_out = None
-                    if _fp_out:
-                        self._print_assistant_message(_fp_out)
-                        logging.info(
-                            "intent fast-path served REPL turn without an agent run "
-                            "(0 api_calls, 0 tool_turns)"
-                        )
-                        continue
 
                     # Regular chat - run agent
                     self._agent_running = True
@@ -14764,31 +14742,6 @@ def main(
             sys.exit(1)
         try:
             query, single_query_images = _collect_query_images(query, image)
-            # ── Pre-LLM deterministic intent fast-path (CLI parity) ───────
-            # Mirrors the gateway/API-server fast-path: a small set of
-            # deterministic intents (weather, time/date) are answered directly
-            # from a cheap HTTP API in ~1-3s, BYPASSING the agent/LLM entirely.
-            # Only fires for a plain text query with no image attachment; on ANY
-            # doubt the handler returns None and we fall through to the agent.
-            # Skipped for slash commands, kanban workers, and goal-loop runs so
-            # it never short-circuits structured tasks.
-            try:
-                from intent_fast_path import try_fast_path_reply as _fp_dispatch
-                _fp_result = _fp_dispatch(query, has_images=bool(single_query_images))
-                if _fp_result:
-                    print(_fp_result)
-                    sys.stdout.flush()
-                    logger.info(
-                        "intent fast-path served CLI query without an agent run "
-                        "(0 api_calls, 0 tool_turns)"
-                    )
-                    sys.exit(0)
-            except SystemExit:
-                raise
-            except Exception as _fp_exc:
-                # Never let a fast-path failure break the normal CLI path;
-                # fall through to the agent.
-                logger.debug("intent fast-path skipped (non-fatal): %s", _fp_exc)
             # Kanban workers spawn with ``hermes chat -q "work kanban task <id>"``;
             # the actual task description lives in the task body. Mirror the
             # gateway/CLI behaviour for inbound images by scanning the body for
