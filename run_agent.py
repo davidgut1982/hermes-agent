@@ -91,7 +91,7 @@ def _launch_cwd_for_session(source: str) -> Optional[str]:
 
 # OpenAI lazy proxy + safe stdio + proxy URL helpers — see agent/process_bootstrap.py.
 # `OpenAI` is re-exported here so `patch("run_agent.OpenAI", ...)` in tests works.
-# The other `# noqa: F401` re-exports below cover names accessed via
+# The other `noqa: F401` re-exports below cover names accessed via
 # `mock.patch("run_agent.<X>")`, `from run_agent import <X>` in production
 # siblings, or the `_ra().<X>` indirection in agent/system_prompt.py — none
 # of which ruff's in-module usage scan can see.
@@ -186,6 +186,9 @@ from agent.trajectory import (
 )
 from agent.tool_dispatch_helpers import (
     _should_parallelize_tool_batch,
+    _is_terminal_call_parallel_safe,  # noqa: F401  # re-exported for tests that `from run_agent import _is_terminal_call_parallel_safe`
+    parallel_batch_active,  # noqa: F401  # re-exported for tests that `from run_agent import parallel_batch_active`
+    parallel_batch_scope,  # noqa: F401  # re-exported for tests that `from run_agent import parallel_batch_scope`
     _is_destructive_command,  # noqa: F401  # re-exported for tests that access `run_agent._is_destructive_command`
     _extract_parallel_scope_path,  # noqa: F401  # re-exported for tests that `from run_agent import _extract_parallel_scope_path`
     _paths_overlap,  # noqa: F401  # re-exported for tests that `from run_agent import _paths_overlap`
@@ -196,7 +199,7 @@ from agent.tool_dispatch_helpers import (
     _extract_error_preview,
     _trajectory_normalize_msg,  # noqa: F401  # re-exported for tests that `from run_agent import _trajectory_normalize_msg`
 )
-from utils import atomic_json_write, base_url_host_matches, base_url_hostname, is_truthy_value, model_forces_max_completion_tokens
+from utils import atomic_json_write, base_url_host_matches, base_url_hostname, is_truthy_value, model_forces_max_completion_tokens, strip_partial_toolcall_fragments
 
 
 
@@ -1608,6 +1611,23 @@ class AIAgent:
 
             for msg in messages:
                 if not isinstance(msg, dict):
+                    continue
+                # Belt-and-suspenders: synthetic empty-response / thinking-
+                # prefill scaffolding is transport-internal and must never reach
+                # the session DB. ``_drop_trailing_empty_response_scaffolding``
+                # only cleans the tail; a synthetic message sitting *before*
+                # real content (e.g. after a short-circuit turn that ran the
+                # in-place strip, or a mid-list nudge) would otherwise be
+                # flushed and replayed next turn, retriggering alternation
+                # repair. Skip it here regardless of position.
+                if any(
+                    msg.get(flag)
+                    for flag in (
+                        "_empty_recovery_synthetic",
+                        "_empty_terminal_sentinel",
+                        "_thinking_prefill",
+                    )
+                ):
                     continue
                 msg_id = id(msg)
                 if msg_id in flushed_ids:
@@ -4199,6 +4219,16 @@ class AIAgent:
 
     def _fire_stream_delta(self, text: str) -> None:
         """Fire all registered stream delta callbacks (display + TTS)."""
+        # Empty-response nudge recovery: when the model returns empty after
+        # tool calls, the loop appends an internal nudge and retries. The
+        # retry iteration's streamed deltas are internal recovery text and
+        # MUST NOT be delivered live to the client (they leaked to Telegram
+        # before the real final answer). The loop sets ``_suppress_nudge_stream``
+        # before the nudge ``continue`` and clears it once the real no-tool-call
+        # answer is confirmed, at which point it re-delivers the buffered final
+        # answer. Drop everything while suppressed.
+        if getattr(self, "_suppress_nudge_stream", False):
+            return
         # If a tool iteration set the break flag, prepend a single paragraph
         # break before the first real text delta.  This prevents the original
         # problem (text concatenation across tool boundaries) without stacking
@@ -4237,6 +4267,12 @@ class AIAgent:
                 self, "_current_streamed_assistant_text", ""
             ):
                 text = text.lstrip("\n")
+            # Strip leaked partial <tool_call>/<function_call> opener fragments
+            # (e.g. "ool_call>") that Qwen3-class models emit as content when
+            # they begin an XML tool-call opener as text then switch to native
+            # tool_calls.  A pure-fragment delta scrubs to "" and is suppressed
+            # by the guard below.  Live per-delta follow-up to #14251.
+            text = strip_partial_toolcall_fragments(text)
         if not text:
             return
         callbacks = [cb for cb in (self.stream_delta_callback, self._stream_callback) if cb is not None]
@@ -5194,6 +5230,7 @@ class AIAgent:
             acp_args=function_args.get("acp_args"),
             role=function_args.get("role"),
             background=function_args.get("background"),
+            profile=function_args.get("profile"),
             parent_agent=self,
         )
 

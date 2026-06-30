@@ -49,7 +49,7 @@ def _ra():
 
 
 AGENT_RUNTIME_POST_HOOK_TOOL_NAMES = frozenset(
-    {"todo", "session_search", "memory", "clarify", "read_terminal", "delegate_task"}
+    {"todo", "session_search", "memory", "clarify", "read_terminal", "model_switch", "delegate_task"}
 )
 
 
@@ -1242,6 +1242,33 @@ def dump_api_request_debug(
         return None
 
 
+# OpenRouter passes through Anthropic-style ``cache_control`` breakpoints for
+# this known set of non-Claude model slugs (Qwen / DeepSeek families) that
+# support explicit caching on their upstream provider. Without breakpoints
+# these models return 0% cache reads and re-bill the full prompt every turn.
+# Only models empirically verified to accept the markers (no 400s, real cache
+# hits) are listed here. Slugs are matched case-insensitively against the
+# lowercased full model id (which carries the provider prefix, e.g.
+# ``deepseek/``). OpenAI- and Google-family models are intentionally omitted:
+# OpenRouter manages their caching automatically.
+#
+# Qwen family + DeepSeek V3.2 ported from cline/cline#10578 (see #20945).
+# DeepSeek V4-flash (and its dated pin) verified on prod Hermes 2026-05-31:
+# 0% -> 98% cache hit rate after adding breakpoints.
+# See user guide: https://github.com/NousResearch/hermes-agent/pull/36971
+_OPENROUTER_EXPLICIT_CACHE_CONTROL_MODEL_IDS: frozenset[str] = frozenset({
+    # Qwen family (ported from cline/cline#10578)
+    "qwen/qwen-plus",
+    "qwen/qwen3-max",
+    "qwen/qwen3.6-plus",
+    "qwen/qwen3-coder-plus",
+    "qwen/qwen3-coder-flash",
+    # DeepSeek (V3.2 from #20945; V4-flash verified on prod: 0% -> 98%, 2026-05-31)
+    "deepseek/deepseek-v3.2",
+    "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-flash-20260423",
+})
+
 
 def anthropic_prompt_cache_policy(
     agent,
@@ -1298,6 +1325,15 @@ def anthropic_prompt_cache_policy(
     if is_native_anthropic:
         return True, True
     if (is_openrouter or is_nous_portal) and is_claude:
+        return True, False
+    # OpenRouter passes through explicit cache_control breakpoints for a known
+    # allow-list of non-Claude slugs (Qwen / DeepSeek). Envelope layout
+    # (native_anthropic=False), matching the OpenRouter Claude branch above.
+    # Without this our prod default deepseek/deepseek-v4-flash falls through to
+    # (False, False) and serves 0% cache hits. Extends #20945 (Qwen +
+    # DeepSeek-v3.2) with deepseek-v4-flash and its dated pin.
+    # See user guide: https://github.com/NousResearch/hermes-agent/pull/36971
+    if is_openrouter and model_lower in _OPENROUTER_EXPLICIT_CACHE_CONTROL_MODEL_IDS:
         return True, False
     # Nous Portal Qwen (e.g. qwen3.6-plus) takes the same envelope-layout
     # cache_control path as Portal Claude. Portal proxies to OpenRouter
@@ -1456,6 +1492,13 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
     client-swap logic but also updates ``_primary_runtime`` so the
     change persists across turns (unlike fallback which is
     turn-scoped).
+
+    Prompt-cache lag: the swap refreshes the context compressor and the
+    model-dependent caching flags, so the new model's prompt-cache prefix
+    is not warm until the NEXT turn. When invoked from ``pre_llm_call``
+    (a per-turn model swap), the swapping turn itself runs cache-cold; the
+    benefit lands on the following turn. Callers that swap every turn pay
+    this lag repeatedly — pin a model when you want a warm cache.
     """
     from hermes_cli.providers import determine_api_mode
 
@@ -1505,6 +1548,13 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
             "_anthropic_base_url",
             "_is_anthropic_oauth",
             "_config_context_length",
+            # Prompt-cache flags are re-evaluated as part of the swap (inside
+            # the try, before the client rebuild). Snapshot them so the
+            # rollback restores the old cache policy too — otherwise a failed
+            # swap could leave the NEW policy bolted onto the restored OLD
+            # model/provider, corrupting the prompt-cache prefix next turn.
+            "_use_prompt_caching",
+            "_use_native_cache_layout",
         )
     }
     # _client_kwargs is a dict — snapshot a shallow copy so mutating the
@@ -1533,6 +1583,23 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
             agent._transport_cache.clear()
         if api_key:
             agent.api_key = api_key
+
+        # ── Re-evaluate prompt caching (inside try → covered by rollback) ──
+        # Compute the new model's cache policy as part of the atomic swap,
+        # BEFORE the client rebuild. The core fields (model/provider/base_url/
+        # api_mode) are already set above, so the policy sees the new state.
+        # Keeping this inside the try means any failure here — or in the
+        # client build below — rolls back the flags alongside everything else,
+        # instead of leaving the agent half-swapped (the policy call used to
+        # live after the except/raise, with no rollback coverage).
+        agent._use_prompt_caching, agent._use_native_cache_layout = (
+            agent._anthropic_prompt_cache_policy(
+                provider=new_provider,
+                base_url=agent.base_url,
+                api_mode=api_mode,
+                model=new_model,
+            )
+        )
 
         # ── Build new client ──
         if api_mode == "anthropic_messages":
@@ -1602,16 +1669,6 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
             except Exception:  # noqa: BLE001
                 pass
         raise
-
-    # ── Re-evaluate prompt caching ──
-    agent._use_prompt_caching, agent._use_native_cache_layout = (
-        agent._anthropic_prompt_cache_policy(
-            provider=new_provider,
-            base_url=agent.base_url,
-            api_mode=api_mode,
-            model=new_model,
-        )
-    )
 
     # ── LM Studio: preload before probing context length ──
     agent._ensure_lmstudio_runtime_loaded()
@@ -1901,6 +1958,14 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                 ),
                 next_args,
             )
+    elif function_name == "model_switch":
+        from tools.model_switch_tool import model_switch_tool as _model_switch_tool
+        return _model_switch_tool(
+            agent,
+            slug=function_args.get("slug", ""),
+            reason=function_args.get("reason", ""),
+            scope=function_args.get("scope", "session"),
+        )
     elif function_name == "delegate_task":
         def _execute(next_args: dict) -> Any:
             return _finish_agent_tool(agent._dispatch_delegate_task(next_args), next_args)
@@ -1936,6 +2001,61 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
 
 
 
+def normalise_mcp_tool_prefix(name: str) -> str:
+    """Collapse a duplicated / corrupted ``mcp_`` prefix to a single one.
+
+    Qwen3-class tool-callers (e.g. Qwen3-235B via OpenRouter) token-split
+    and emit MCP tool names with an extra leading character or a doubled
+    prefix:
+
+    * ``mmcp_knowledge_kb_get`` — spurious leading ``m`` turns ``mcp_`` into
+      ``mmcp_``.
+    * ``mcp_mcp_knowledge_kb_get`` — the ``mcp_`` prefix is emitted twice.
+    * ``xmcp_...`` / ``abmcp_...`` — up to ~5 chars of leading junk before
+      the real ``mcp_`` prefix.
+
+    Corruption can also *stack* — ``mcp_mcp_mcp_knowledge_kb_get`` nests the
+    ``mcp_`` prefix three deep — so the collapse runs as a bounded fixpoint
+    loop: each pass strips at most one layer and the loop terminates once a
+    pass leaves ``name`` unchanged. Every pass either strictly shortens
+    ``name`` or makes no change, so the loop cannot spin forever regardless
+    of input.
+
+    Normalising these *before* the fuzzy match in :func:`repair_tool_call`
+    lets them hit the cheap direct-match fast-path instead of falling
+    through to the slow ``difflib`` fuzzy match (which also logs a repair
+    line per occurrence). Returns ``name`` unchanged when no such
+    corruption is detected, so legit names (``mcp_knowledge_kb_get``) and
+    truly-garbled names (random tokens, bare ``kb_search`` with no prefix)
+    are untouched and still fall through to the normal repair path.
+    """
+    if not name:
+        return name
+    # Bounded fixpoint: collapse stacked corruption to a single ``mcp_``.
+    # Each pass strips at most one layer; the loop stops when a pass is a
+    # no-op, which always happens because every change shortens ``name``.
+    prev = None
+    while prev != name:
+        prev = name
+        lowered = name.lower()
+        # Doubled prefix: strip one leading ``mcp_`` (4 chars). Looping over
+        # this collapses arbitrary nesting (``mcp_mcp_mcp_tool`` -> ... ->
+        # ``mcp_tool``) one layer per pass.
+        if lowered.startswith("mcp_mcp_"):
+            name = name[4:]
+            continue
+        # Spurious single leading ``m``: ``mmcp_`` -> ``mcp_``.
+        if lowered.startswith("mmcp_"):
+            name = name[1:]
+            continue
+        # Up to 5 chars of leading junk before a real ``mcp_`` prefix.
+        idx = lowered.find("mcp_")
+        if 0 < idx <= 5:
+            name = name[idx:]
+            continue
+    return name
+
+
 def repair_tool_call(agent, tool_name: str) -> str | None:
     """Attempt to repair a mismatched tool name before aborting.
 
@@ -1962,6 +2082,12 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
 
     if not tool_name:
         return None
+
+    # Repair duplicated / corrupted ``mcp_`` prefixes (mmcp_, mcp_mcp_,
+    # leading junk before mcp_) emitted by Qwen3-class tool-callers before
+    # anything else, so corrupted names normalise to the direct-match
+    # fast-path below instead of the slow fuzzy fallback.
+    tool_name = normalise_mcp_tool_prefix(tool_name)
 
     # VolcEngine api/plan workaround (issue #33007): the endpoint's
     # protocol-translation layer occasionally leaks raw XML attribute
@@ -2023,9 +2149,43 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
             return c
 
     # Fuzzy match as last resort.
+    #
+    # Guard against repairing across distinct operations that merely share a
+    # long common namespace prefix.  For namespaced MCP tools the shared
+    # ``mcp_<server>_`` prefix can push two semantically-opposite operations
+    # (e.g. ``mcp_knowledge_kb_search`` vs ``mcp_knowledge_kb_add``) over the
+    # 0.7 cutoff, so a missing read tool would be silently repaired into a
+    # write tool — a dangerous and incorrect remap (BUG-8).  We strip the
+    # shared prefix and re-score on the *operation suffix* (the part that
+    # actually distinguishes the tools); only accept the fuzzy candidate when
+    # the operations themselves are similar (legitimate typo) rather than just
+    # the namespace.
+    from difflib import SequenceMatcher
+
+    def _op_suffix(name: str, other: str) -> str:
+        """Return ``name`` with the longest shared leading ``_``-segment run
+        (the common namespace prefix) removed, so only the operation remains."""
+        a, b = name.split("_"), other.split("_")
+        i = 0
+        while i < len(a) and i < len(b) and a[i] == b[i]:
+            i += 1
+        return "_".join(a[i:]) or name
+
     matches = get_close_matches(lowered, agent.valid_tool_names, n=1, cutoff=0.7)
     if matches:
-        return matches[0]
+        candidate = matches[0]
+        op_a = _op_suffix(lowered, candidate)
+        op_b = _op_suffix(candidate, lowered)
+        # If the emitted op and candidate op share a namespace prefix but the
+        # operations diverge, require the operations themselves to be a close
+        # match.  When there is no shared prefix (op == full name) this is a
+        # no-op and ordinary fuzzy behaviour is preserved.
+        shared_prefix = op_a != lowered or op_b != candidate
+        if shared_prefix:
+            op_ratio = SequenceMatcher(None, op_a, op_b).ratio()
+            if op_ratio < 0.7:
+                return None
+        return candidate
 
     return None
 
@@ -2608,6 +2768,7 @@ __all__ = [
     "create_openai_client",
     "switch_model",
     "invoke_tool",
+    "normalise_mcp_tool_prefix",
     "repair_tool_call",
     "sanitize_api_messages",
     "looks_like_codex_intermediate_ack",

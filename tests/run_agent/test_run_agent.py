@@ -3172,6 +3172,198 @@ class TestMcpParallelToolBatch:
                 _mcp_tool_server_names.pop("mcp_github_list_repos", None)
 
 
+class TestTerminalPrefixParallelToolBatch:
+    """Integration test: _should_parallelize_tool_batch respects the operator
+    ``terminal.parallel_safe_prefixes`` allowlist.
+
+    Why: terminal calls always hit the not-parallel-safe branch and force the
+    whole batch serial. Operators who run read-only one-shot CLI lookups (e.g.
+    status/query commands) want those batched concurrently. The allowlist is
+    config-driven and bridged to the ``TERMINAL_PARALLEL_SAFE_PREFIXES`` env
+    var (JSON list) — mirroring the per-server ``supports_parallel_tool_calls``
+    MCP opt-in. Empty/unset = current behavior preserved (serial).
+    What: drives the public gate and asserts the boolean it returns.
+    Test: mock the env allowlist, build terminal tool-call batches, assert the
+    gate parallelizes only matching commands and never regresses the default.
+    """
+
+    def test_terminal_batch_parallel_when_prefix_matches(self, monkeypatch):
+        """Two terminal calls whose commands match a configured prefix parallelize."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 2"}', call_id="c2")
+        assert _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_batch_serial_when_prefixes_unset(self, monkeypatch):
+        """Regression: with no allowlist, terminal batches stay sequential."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.delenv("TERMINAL_PARALLEL_SAFE_PREFIXES", raising=False)
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 2"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_batch_serial_when_prefixes_empty(self, monkeypatch):
+        """Regression: an explicit empty allowlist behaves like unset (serial)."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", "[]")
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 2"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_batch_serial_when_command_not_matching(self, monkeypatch):
+        """A terminal command outside the allowlist forces the batch serial."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"rm -rf /"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_prefix_requires_word_boundary(self, monkeypatch):
+        """Prefix ``ls`` must NOT match ``lsof`` — the prefix has to land on a
+        word boundary (whitespace or end-of-string), not an arbitrary char."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["ls"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"lsof -i"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"lsof -nP"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_prefix_matches_on_word_boundary(self, monkeypatch):
+        """Prefix ``ls`` matches ``ls -l`` (followed by whitespace) and a bare
+        ``ls`` (end-of-string)."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["ls"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"ls -l"}', call_id="c1")
+        tc2 = _mock_tool_call(name="terminal", arguments='{"command":"ls"}', call_id="c2")
+        assert _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_terminal_prefix_rejects_command_chaining_metacharacters(self, monkeypatch):
+        """A command whose prefix matches but which chains a second command via
+        ``&&`` is rejected (runs serial) — the prefix only vouches for the first
+        token, not for anything a metacharacter smuggles in."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["gh-axi"]')
+        # Sanity: the clean form parallelizes.
+        ok1 = _mock_tool_call(name="terminal", arguments='{"command":"gh-axi issue view 1"}', call_id="a1")
+        ok2 = _mock_tool_call(name="terminal", arguments='{"command":"gh-axi issue view 2"}', call_id="a2")
+        assert _should_parallelize_tool_batch([ok1, ok2])
+
+        # Chaining via && (and each other metachar) forces serial.
+        bad = _mock_tool_call(
+            name="terminal",
+            arguments='{"command":"gh-axi x && rm -rf /"}',
+            call_id="b1",
+        )
+        clean = _mock_tool_call(name="terminal", arguments='{"command":"gh-axi issue view 2"}', call_id="b2")
+        assert not _should_parallelize_tool_batch([bad, clean])
+
+    def test_terminal_prefix_metachar_unit_matrix(self, monkeypatch):
+        """Each chaining/redirection/substitution metachar individually rejects
+        an otherwise-matching command via the underlying predicate."""
+        from run_agent import _is_terminal_call_parallel_safe
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["gh-axi"]')
+        for bad in (
+            "gh-axi x && y", "gh-axi x || y", "gh-axi x; y", "gh-axi x | y",
+            "gh-axi `id`", "gh-axi $(id)", "gh-axi > out", "gh-axi < in",
+            "gh-axi x\ny",
+        ):
+            assert not _is_terminal_call_parallel_safe({"command": bad}), bad
+        assert _is_terminal_call_parallel_safe({"command": "gh-axi issue view 1"})
+
+    def test_mixed_terminal_and_write_file_parallel_when_paths_disjoint(
+        self, monkeypatch
+    ):
+        """An allowlisted terminal call batched with a path-scoped write_file to a
+        non-overlapping path parallelizes — closing the gap between the terminal
+        branch and the ``_PATH_SCOPED_TOOLS`` reserved-paths logic."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(
+            name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1"
+        )
+        tc2 = _mock_tool_call(
+            name="write_file",
+            arguments='{"path":"src/a.py","content":"print(1)"}',
+            call_id="c2",
+        )
+        assert _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_mixed_terminal_and_write_file_serial_when_paths_overlap(
+        self, monkeypatch
+    ):
+        """One allowlisted terminal call plus two write_files targeting the SAME
+        path forces the batch serial via the ``_PATH_SCOPED_TOOLS`` reserved-paths
+        overlap check.
+
+        Note on scope: terminal calls reserve no ``reserved_paths`` entry (they
+        are not path-scoped — see the comment in ``_should_parallelize_tool_batch``'s
+        terminal branch), so this test exercises the write_file/write_file overlap,
+        NOT a terminal-vs-path conflict. The serial result here is driven by the
+        two write_files writing ``src/a.py`` concurrently; the terminal call rides
+        along and does not by itself force serial.
+        """
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(
+            name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1"
+        )
+        tc2 = _mock_tool_call(
+            name="write_file",
+            arguments='{"path":"src/a.py","content":"print(1)"}',
+            call_id="c2",
+        )
+        tc3 = _mock_tool_call(
+            name="write_file",
+            arguments='{"path":"src/a.py","content":"print(2)"}',
+            call_id="c3",
+        )
+        assert not _should_parallelize_tool_batch([tc1, tc2, tc3])
+
+    def test_mixed_terminal_and_never_parallel_serial(self, monkeypatch):
+        """A matching terminal call mixed with a never-parallel tool stays serial."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        tc2 = _mock_tool_call(name="clarify", arguments='{"question":"which?"}', call_id="c2")
+        assert not _should_parallelize_tool_batch([tc1, tc2])
+
+    def test_single_terminal_call_short_circuits_serial(self, monkeypatch):
+        """A batch of one is always serial regardless of the allowlist."""
+        from run_agent import _should_parallelize_tool_batch
+
+        monkeypatch.setenv("TERMINAL_PARALLEL_SAFE_PREFIXES", '["mytool"]')
+        tc1 = _mock_tool_call(name="terminal", arguments='{"command":"mytool issue 1"}', call_id="c1")
+        assert not _should_parallelize_tool_batch([tc1])
+
+    def test_parallel_batch_scope_flag_propagates_to_worker_thread(self):
+        """Finding 1 wiring: the concurrent dispatcher marks the batch active via
+        ``parallel_batch_scope`` BEFORE submitting work, so a worker thread that
+        copies the context (as ``propagate_context_to_thread`` does) observes the
+        flag and the terminal tool can select the stateless execute path."""
+        import contextvars
+        from run_agent import parallel_batch_active, parallel_batch_scope
+
+        assert parallel_batch_active() is False
+        with parallel_batch_scope():
+            assert parallel_batch_active() is True
+            # A child context copied while the scope is open inherits the flag,
+            # mirroring how worker threads see it.
+            ctx = contextvars.copy_context()
+            assert ctx.run(parallel_batch_active) is True
+        assert parallel_batch_active() is False
+
+
 class TestHandleMaxIterations:
     def test_returns_summary(self, agent):
         resp = _mock_response(content="Here is a summary of what I did.")
@@ -6758,3 +6950,104 @@ class TestMemoryProviderTurnStart:
         # The extracted body uses ``agent.X`` rather than ``self.X``;
         # assert the extracted-form spelling directly.
         assert "on_turn_start(agent._user_turn_count" in src
+
+
+class TestPreLlmCallShortCircuit:
+    """A pre_llm_call ``{final_response}`` must short-circuit run_conversation.
+
+    The loop returns the standard terminal dict with ``api_calls == 0`` and
+    ``completed == True``, never entering the tool-calling loop (no LLM call).
+    The full prologue is mocked via build_turn_context so the test is hermetic.
+    """
+
+    def _short_circuit_ctx(self, reply, messages):
+        from agent.turn_context import TurnContext
+        return TurnContext(
+            user_message="hi",
+            original_user_message="hi",
+            messages=messages,
+            conversation_history=None,
+            active_system_prompt="SYS",
+            effective_task_id="t1",
+            turn_id="turn1",
+            current_turn_user_idx=0,
+            short_circuit_response=reply,
+        )
+
+    def test_short_circuit_returns_zero_api_calls(self):
+        from agent.conversation_loop import run_conversation
+        messages = [{"role": "user", "content": "hi"}]
+        agent = SimpleNamespace(api_mode="chat_completions")
+
+        with patch(
+            "agent.conversation_loop.build_turn_context",
+            return_value=self._short_circuit_ctx("Deterministic answer.", messages),
+        ):
+            result = run_conversation(agent, "hi")
+
+        assert result["final_response"] == "Deterministic answer."
+        assert result["api_calls"] == 0
+        assert result["completed"] is True
+        assert result["messages"] is messages
+
+    def test_short_circuit_appends_well_formed_assistant_turn(self):
+        """Regression (HIGH-1): the short-circuit terminal dict must end with a
+        well-formed assistant turn so callers persisting ``messages`` as
+        next-turn history keep alternating roles. Previously ``messages`` ended
+        with the user turn and NO assistant turn, corrupting the next turn.
+        """
+        from agent.conversation_loop import run_conversation
+        # Simulate prior history + this turn's user message (as build_turn_context
+        # leaves it): ends with the user turn, no assistant turn yet.
+        messages = [
+            {"role": "user", "content": "earlier"},
+            {"role": "assistant", "content": "earlier reply"},
+            {"role": "user", "content": "what's the weather?"},
+        ]
+        agent = SimpleNamespace(api_mode="chat_completions")
+
+        with patch(
+            "agent.conversation_loop.build_turn_context",
+            return_value=self._short_circuit_ctx("It is sunny.", messages),
+        ):
+            result = run_conversation(agent, "what's the weather?")
+
+        assert result["api_calls"] == 0
+        assert result["completed"] is True
+        out = result["messages"]
+        # History ends with a well-formed assistant turn carrying the reply.
+        assert out[-1] == {"role": "assistant", "content": "It is sunny."}
+        # Roles strictly alternate user/assistant/.../user/assistant.
+        roles = [m["role"] for m in out]
+        assert roles == ["user", "assistant", "user", "assistant"]
+        for a, b in zip(roles, roles[1:]):
+            assert a != b, f"non-alternating roles: {roles}"
+
+    def test_no_short_circuit_proceeds_past_early_return(self):
+        """When short_circuit_response is None the early return must NOT fire."""
+        from agent.turn_context import TurnContext
+        from agent.conversation_loop import run_conversation
+
+        messages = [{"role": "user", "content": "hi"}]
+        ctx = TurnContext(
+            user_message="hi",
+            original_user_message="hi",
+            messages=messages,
+            conversation_history=None,
+            active_system_prompt="SYS",
+            effective_task_id="t1",
+            turn_id="turn1",
+            current_turn_user_idx=0,
+            short_circuit_response=None,
+        )
+        # codex path is a separate, cheap early-return we can assert routes there
+        # to prove the short-circuit branch was skipped without running the loop.
+        agent = SimpleNamespace(
+            api_mode="codex_app_server",
+            _run_codex_app_server_turn=lambda **kw: {"final_response": "codex", "api_calls": 1},
+        )
+        with patch("agent.conversation_loop.build_turn_context", return_value=ctx):
+            result = run_conversation(agent, "hi")
+        # Reached the codex branch (api_calls != 0) → short-circuit was skipped.
+        assert result["final_response"] == "codex"
+        assert result["api_calls"] == 1

@@ -565,6 +565,13 @@ class GatewayConfig:
     # fresh session exactly as if the reset policy had fired.  0 = disabled.
     session_store_max_age_days: int = 90
 
+    # ── Multi-agent (single-gateway-multi-agent) ─────────────────────────
+    # Empty defaults preserve legacy single-agent behavior: the runtime
+    # always synthesizes a {"main": AgentProfile()} registry on top of this.
+    agents: Dict[str, Any] = field(default_factory=dict)
+    routes: List[Dict[str, Any]] = field(default_factory=list)
+    default_agent: str = "main"
+
     def get_connected_platforms(self) -> List[Platform]:
         """Return list of platforms that are enabled and configured."""
         connected = []
@@ -661,6 +668,9 @@ class GatewayConfig:
             "unauthorized_dm_behavior": self.unauthorized_dm_behavior,
             "streaming": self.streaming.to_dict(),
             "session_store_max_age_days": self.session_store_max_age_days,
+            "agents": self.agents,
+            "routes": self.routes,
+            "default_agent": self.default_agent,
         }
     
     @classmethod
@@ -730,6 +740,21 @@ class GatewayConfig:
         except (TypeError, ValueError):
             session_store_max_age_days = 90
 
+        # Multi-agent config (optional; empty defaults preserve legacy
+        # single-agent behavior).
+        agents = data.get("agents") or {}
+        if not isinstance(agents, dict):
+            agents = {}
+        routes_raw = data.get("routes") or []
+        routes: List[Dict[str, Any]] = []
+        if isinstance(routes_raw, list):
+            for r in routes_raw:
+                if isinstance(r, dict):
+                    routes.append(r)
+        default_agent = data.get("default_agent") or "main"
+        if not isinstance(default_agent, str) or not default_agent.strip():
+            default_agent = "main"
+
         return cls(
             platforms=platforms,
             default_reset_policy=default_policy,
@@ -750,6 +775,9 @@ class GatewayConfig:
             unauthorized_dm_behavior=unauthorized_dm_behavior,
             streaming=StreamingConfig.from_dict(data.get("streaming", {})),
             session_store_max_age_days=session_store_max_age_days,
+            agents=agents,
+            routes=routes,
+            default_agent=default_agent.strip(),
         )
 
     def get_unauthorized_dm_behavior(self, platform: Optional[Platform] = None) -> str:
@@ -846,15 +874,18 @@ def load_gateway_config() -> GatewayConfig:
                 gw_data["thread_sessions_per_user"] = yaml_cfg["thread_sessions_per_user"]
 
             # Multiplexing flag: accept both the top-level key and the nested
-            # gateway.multiplex_profiles form (from_dict resolves the nested
-            # fallback, but surface the top-level key here for parity with the
-            # other session-scope flags above).
+            # gateway.multiplex_profiles form (written by
+            # ``hermes config set gateway.multiplex_profiles true``).
             if "multiplex_profiles" in yaml_cfg:
                 gw_data["multiplex_profiles"] = yaml_cfg["multiplex_profiles"]
 
             gateway_section = yaml_cfg.get("gateway")
-            if isinstance(gateway_section, dict) and "max_concurrent_sessions" in gateway_section:
-                gw_data["max_concurrent_sessions"] = gateway_section["max_concurrent_sessions"]
+            if isinstance(gateway_section, dict):
+                if "multiplex_profiles" in gateway_section and "multiplex_profiles" not in gw_data:
+                    # gateway.multiplex_profiles written by `hermes config set gateway.multiplex_profiles true`
+                    gw_data["multiplex_profiles"] = gateway_section["multiplex_profiles"]
+                if "max_concurrent_sessions" in gateway_section:
+                    gw_data["max_concurrent_sessions"] = gateway_section["max_concurrent_sessions"]
 
             if "max_concurrent_sessions" in yaml_cfg:
                 gw_data["max_concurrent_sessions"] = yaml_cfg["max_concurrent_sessions"]
@@ -877,6 +908,15 @@ def load_gateway_config() -> GatewayConfig:
                 gw_data["filter_silence_narration"] = yaml_cfg[
                     "filter_silence_narration"
                 ]
+
+            if "agents" in yaml_cfg:
+                gw_data["agents"] = yaml_cfg["agents"]
+
+            if "routes" in yaml_cfg:
+                gw_data["routes"] = yaml_cfg["routes"]
+
+            if "default_agent" in yaml_cfg:
+                gw_data["default_agent"] = yaml_cfg["default_agent"]
 
             if "unauthorized_dm_behavior" in yaml_cfg:
                 gw_data["unauthorized_dm_behavior"] = _normalize_unauthorized_dm_behavior(
@@ -1685,7 +1725,19 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
     if api_server_enabled or api_server_key:
         if Platform.API_SERVER not in config.platforms:
             config.platforms[Platform.API_SERVER] = PlatformConfig()
-        config.platforms[Platform.API_SERVER].enabled = True
+        # Respect an explicit ``enabled: false`` in config.yaml (flagged by
+        # ``_enabled_explicit``). In multiplex mode a secondary profile's
+        # config.yaml pins ``platforms.api_server.enabled: false`` so it shares
+        # the default profile's listener instead of binding its own port. That
+        # profile still inherits the process-level env (including
+        # ``API_SERVER_KEY``); without this guard the env-var presence would
+        # force-enable the listener and trip the MultiplexConfigError check.
+        # Pop (don't read) the marker — the api_server branch is terminal (no
+        # later registry pass re-enables it), so this both consumes the flag and
+        # avoids reading it twice, matching the pop convention used elsewhere.
+        api_server_explicit = config.platforms[Platform.API_SERVER].extra.pop("_enabled_explicit", False)
+        if not api_server_explicit or config.platforms[Platform.API_SERVER].enabled:
+            config.platforms[Platform.API_SERVER].enabled = True
         if api_server_key:
             config.platforms[Platform.API_SERVER].extra["key"] = api_server_key
         if api_server_cors_origins:

@@ -2379,6 +2379,19 @@ def terminal_tool(
                             default_cwd=cwd,
                         ),
                     }
+                    # Inside a concurrent tool batch every terminal call is an
+                    # allowlisted, declared-stateless read-only lookup (the
+                    # parallel gate forces the batch serial otherwise). Run it on
+                    # the snapshot-free path so concurrent calls sharing this
+                    # task's environment cannot race the session snapshot/cwd
+                    # read-modify-write (#38249).
+                    try:
+                        from agent.tool_dispatch_helpers import parallel_batch_active
+
+                        if parallel_batch_active():
+                            execute_kwargs["persist_session"] = False
+                    except Exception:
+                        pass
                     result = env.execute(command, **execute_kwargs)
                 except Exception as e:
                     error_str = str(e).lower()
@@ -2422,6 +2435,14 @@ def terminal_tool(
             # The hook is fail-open, and the first valid string return wins.
             try:
                 from hermes_cli.plugins import invoke_hook
+                _agent_id = None
+                try:
+                    from agent.profile import get_active_profile
+                    _p = get_active_profile()
+                    if _p:
+                        _agent_id = _p.id
+                except Exception:
+                    pass
                 hook_results = invoke_hook(
                     "transform_terminal_output",
                     command=command,
@@ -2429,6 +2450,7 @@ def terminal_tool(
                     returncode=returncode,
                     task_id=effective_task_id or "",
                     env_type=env_type,
+                    agent_id=_agent_id,
                 )
                 for hook_result in hook_results:
                     if isinstance(hook_result, str):

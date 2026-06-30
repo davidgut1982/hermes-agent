@@ -342,8 +342,15 @@ def _notify_session_boundary(event_type: str, session_id: str | None) -> None:
     """Fire session lifecycle hooks with CLI parity."""
     try:
         from hermes_cli.plugins import invoke_hook as _invoke_hook
-
-        _invoke_hook(event_type, session_id=session_id, platform="tui")
+        _agent_id = None
+        try:
+            from agent.profile import get_active_profile
+            _p = get_active_profile()
+            if _p:
+                _agent_id = _p.id
+        except Exception:
+            pass
+        _invoke_hook(event_type, session_id=session_id, platform="tui", agent_id=_agent_id)
     except Exception:
         pass
 
@@ -457,8 +464,16 @@ def _teardown_session(session: dict | None, *, end_reason: str = "tui_close") ->
         pass
     try:
         agent = session.get("agent")
-        if agent is not None and hasattr(agent, "close"):
-            agent.close()
+        if agent:
+            # Bug #50197: drain memory provider before closing
+            if hasattr(agent, "shutdown_memory_provider"):
+                session_messages = getattr(agent, "_session_messages", None)
+                if isinstance(session_messages, list):
+                    agent.shutdown_memory_provider(session_messages)
+                else:
+                    agent.shutdown_memory_provider()
+            if hasattr(agent, "close"):
+                agent.close()
     except Exception:
         pass
     # NOTE: the slash-worker is closed inside _finalize_session (the single
@@ -6487,6 +6502,12 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     run_kwargs["task_id"] = session["session_key"]
             except (TypeError, ValueError):
                 pass
+            # User-model-pin signal for pre_llm_call routing plugins: a live
+            # ``/model <name>`` on TUI/dashboard records ``session["model_override"]``
+            # (cleared on /new or a return to auto), so an active override IS the
+            # operator's explicit pin. Set it per-turn so a routing plugin can
+            # defer reliably even when the pinned model equals a tier model.
+            agent._user_model_pin = bool(session.get("model_override"))
             result = agent.run_conversation(run_message, **run_kwargs)
 
             last_reasoning = None
@@ -7388,12 +7409,29 @@ def _(rid, params: dict) -> dict:
         try:
             from run_agent import AIAgent
 
-            result = AIAgent(
+            agent = AIAgent(
                 **_background_agent_kwargs(session["agent"], task_id)
-            ).run_conversation(
-                user_message=text,
-                task_id=task_id,
             )
+            try:
+                # Bug #50233: reapply profile HERMES_HOME override in this
+                # thread context (ContextVar doesn't propagate from the
+                # session-create thread to ephemeral agent threads).
+                _ph = session.get("profile_home")
+                _ht = set_hermes_home_override(_ph) if _ph else None
+                try:
+                    result = agent.run_conversation(
+                        user_message=text,
+                        task_id=task_id,
+                    )
+                finally:
+                    if _ht is not None:
+                        reset_hermes_home_override(_ht)
+            finally:
+                # Bug #50197: close ephemeral background agent
+                try:
+                    agent.close()
+                except Exception:
+                    pass
             _emit(
                 "background.complete",
                 parent,
@@ -7499,14 +7537,30 @@ def _(rid, params: dict) -> dict:
                 parent,
                 {"task_id": task_id, "text": f"Starting hidden restart agent{history_note}"},
             )
-            result = AIAgent(
+            agent = AIAgent(
                 **_ephemeral_preview_agent_kwargs(session["agent"], task_id),
                 **_preview_restart_callbacks(parent, task_id),
-            ).run_conversation(
-                user_message=prompt,
-                task_id=task_id,
-                conversation_history=parent_history or None,
             )
+            try:
+                # Bug #50233: reapply profile HERMES_HOME override in this
+                # thread context (ContextVar doesn't propagate from parent).
+                _ph = session.get("profile_home")
+                _ht = set_hermes_home_override(_ph) if _ph else None
+                try:
+                    result = agent.run_conversation(
+                        user_message=prompt,
+                        task_id=task_id,
+                        conversation_history=parent_history or None,
+                    )
+                finally:
+                    if _ht is not None:
+                        reset_hermes_home_override(_ht)
+            finally:
+                # Bug #50197: close ephemeral preview-restart agent
+                try:
+                    agent.close()
+                except Exception:
+                    pass
             text = (
                 result.get("final_response", str(result))
                 if isinstance(result, dict)

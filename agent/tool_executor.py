@@ -35,6 +35,7 @@ from agent.tool_dispatch_helpers import (
     _multimodal_text_summary,
     _append_subdir_hint_to_multimodal,
     make_tool_result_message,
+    parallel_batch_scope,
 )
 from tools.terminal_tool import (
     get_active_env,
@@ -559,7 +560,18 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         futures = []
         if runnable_calls:
             max_workers = min(len(runnable_calls), _MAX_TOOL_WORKERS)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Mark the batch as concurrent BEFORE submitting: each worker copies
+            # this thread's context at submit time (propagate_context_to_thread),
+            # so the flag must already be set when copy_context() runs.  This
+            # routes any allowlisted terminal call onto the stateless,
+            # snapshot-free execute() path, avoiding the shared session-snapshot
+            # read-modify-write race (#38249).
+            with (
+                parallel_batch_scope(),
+                concurrent.futures.ThreadPoolExecutor(
+                    max_workers=max_workers
+                ) as executor,
+            ):
                 for i, tc, name, args in runnable_calls:
                     # Propagate the agent turn's ContextVars (e.g.
                     # _approval_session_key) AND thread-local approval/sudo
@@ -1098,6 +1110,17 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
                 agent._vprint(f"  {_get_cute_tool_message_impl('read_terminal', function_args, tool_duration, result=function_result)}")
+        elif function_name == "model_switch":
+            from tools.model_switch_tool import model_switch_tool as _model_switch_tool
+            function_result = _model_switch_tool(
+                agent,
+                slug=function_args.get("slug", ""),
+                reason=function_args.get("reason", ""),
+                scope=function_args.get("scope", "session"),
+            )
+            tool_duration = time.time() - tool_start_time
+            if agent._should_emit_quiet_tool_messages():
+                agent._vprint(f"  {_get_cute_tool_message_impl('model_switch', function_args, tool_duration, result=function_result)}")
         elif function_name == "delegate_task":
             tasks_arg = function_args.get("tasks")
             if tasks_arg and isinstance(tasks_arg, list):

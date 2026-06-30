@@ -153,6 +153,17 @@ VALID_HOOKS: Set[str] = {
     #   {"action": "allow"}  /  None             -> normal dispatch
     # Kwargs: event: MessageEvent, gateway: GatewayRunner, session_store.
     "pre_gateway_dispatch",
+    # Agent selection hook (single-gateway-multi-agent).  Fired once per
+    # inbound MessageEvent after the declarative routes table has been
+    # consulted but BEFORE the message dispatches to an AIAgent.  Plugins
+    # return a string (the agent_id) to bind the message to that agent,
+    # or None/"" to defer.  First non-empty string wins.  When all hooks
+    # defer, the runtime falls back to the routes-table result, then to
+    # ``config.default_agent``, then to ``"main"``.
+    #
+    # Kwargs: event: MessageEvent, gateway: GatewayRunner,
+    #         route_match: Optional[str]  (what the routes table resolved to)
+    "select_agent",
     # Approval lifecycle hooks. Fired by tools/approval.py when a dangerous
     # command needs user approval -- fires BOTH for CLI-interactive prompts
     # and for gateway/ACP approvals (Telegram, Discord, Slack, TUI, etc.).
@@ -1663,17 +1674,41 @@ class PluginManager:
 
         Returns a list of non-``None`` return values from callbacks.
 
-        For ``pre_llm_call``, callbacks may return a dict describing
-        context to inject into the current turn's user message::
+        For ``pre_llm_call``, callbacks receive (besides the usual
+        ``session_id``/``task_id``/``turn_id``/``user_message``/``model``/
+        ``platform`` kwargs) one extra kwarg: ``agent`` (the live
+        ``AIAgent`` for this turn). The surface sets ``agent._user_model_pin``
+        to ``True`` when the operator pinned a model via ``/model`` and clears
+        it when they return to auto; a routing callback should defer (return
+        None) while that flag is set. A callback may return one of three
+        kinds of value; the engine applies the first match across
+        callbacks with precedence final_response > model > context::
 
-            {"context": "recalled text..."}
-            "recalled text..."          # plain string, equivalent
+            {"context": "recalled text..."}   # inject into user message
+            "recalled text..."                # plain string, equivalent
+
+            # Swap the model/provider for this turn (and onward) BEFORE
+            # the first LLM call. Applied via switch_model(); fail-open
+            # (a swap error keeps the profile's model). NOTE: switch_model
+            # rebuilds the system prompt, so the new model's prompt-cache
+            # prefix only warms on the FOLLOWING turn — the swapping turn
+            # itself pays a cache-cold prompt (one-turn lag).
+            {"model": str, "provider": str, "api_key": str,
+             "base_url": str, "api_mode": str | None}
+
+            # Short-circuit the turn: the loop returns this reply
+            # immediately with api_calls == 0 (no LLM call at all). The
+            # engine appends it to ``messages`` as a well-formed assistant
+            # turn so persisted history keeps alternating roles.
+            {"final_response": str}
 
         Context is ALWAYS injected into the user message, never the
         system prompt.  This preserves the prompt cache prefix — the
         system prompt stays identical across turns so cached tokens
         are reused.  All injected context is ephemeral — never
-        persisted to session DB.
+        persisted to session DB.  If both a ``model`` bundle and a
+        ``final_response`` are returned, ``final_response`` wins and the
+        swap is skipped.
         """
         kwargs.setdefault("telemetry_schema_version", OBSERVER_SCHEMA_VERSION)
         callbacks = self._hooks.get(hook_name, [])
@@ -1883,6 +1918,14 @@ def get_pre_tool_call_block_message(
         fmt = getattr(_thread_tool_whitelist, "fmt", "Tool '{tool_name}' denied")
         return fmt.format(tool_name=tool_name)
 
+    _agent_id = None
+    try:
+        from agent.profile import get_active_profile
+        _p = get_active_profile()
+        if _p:
+            _agent_id = _p.id
+    except Exception:
+        pass
     hook_results = invoke_hook(
         "pre_tool_call",
         tool_name=tool_name,
@@ -1893,6 +1936,7 @@ def get_pre_tool_call_block_message(
         turn_id=turn_id,
         api_request_id=api_request_id,
         middleware_trace=list(middleware_trace or []),
+        agent_id=_agent_id,
     )
 
     for result in hook_results:
