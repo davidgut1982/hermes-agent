@@ -16,6 +16,7 @@ The parent's context only sees the delegation call and the summary result,
 never the child's intermediate tool calls or reasoning.
 """
 
+import copy
 import enum
 import json
 import logging
@@ -1064,6 +1065,10 @@ def _build_child_agent(
     # 'leaf' (default) cannot; 'orchestrator' retains the delegation
     # toolset subject to depth/kill-switch bounds applied below.
     role: str = "leaf",
+    # Name of the resolved agent_profiles profile, if delegation used one.
+    # When set, MCP toolsets declared by the profile bypass parent
+    # intersection (see toolset resolution below).
+    profile_name: Optional[str] = None,
 ):
     """
     Build a child AIAgent on the main thread (thread-safe construction).
@@ -1073,6 +1078,16 @@ def _build_child_agent(
     those credentials instead of inheriting from the parent.  This enables
     routing subagents to a different provider:model pair (e.g. cheap/fast
     model on OpenRouter while the parent runs on Nous Portal).
+
+    profile_name: when set (i.e. the delegation came from a named
+    agent_profiles entry), MCP toolsets in the requested toolset list bypass
+    the parent-intersection check and are resolved directly from the global
+    mcp_servers config.  This is intentional: a profile explicitly declares
+    which MCP servers its worker needs, and those servers should be available
+    regardless of whether the orchestrator itself loaded them (e.g. it
+    restricted its own context via no_mcp).  Non-MCP toolsets still go
+    through intersection — that security boundary is preserved for ad-hoc
+    delegation.  See NousResearch/hermes-agent#32668.
     """
     from run_agent import AIAgent
     import uuid as _uuid
@@ -1123,8 +1138,23 @@ def _build_child_agent(
         # Expand composite toolsets (e.g. hermes-cli) so that individual
         # toolset names (e.g. web, terminal) are recognised during intersection.
         expanded_parent = _expand_parent_toolsets(parent_toolsets)
-        child_toolsets = [t for t in toolsets if t in expanded_parent]
-        if _get_inherit_mcp_toolsets():
+
+        # When toolsets come from a named agent_profile, MCP toolsets bypass the
+        # parent intersection. The profile declares exactly which MCP servers the
+        # child needs; resolving them against the parent's loaded tools would
+        # silently drop them whenever the orchestrator restricts its own MCP
+        # context (e.g. no_mcp, or simply not loading domain servers). Non-MCP
+        # toolsets still go through intersection — that security boundary is
+        # preserved. See NousResearch/hermes-agent#32668.
+        if profile_name:
+            child_toolsets = [
+                t for t in toolsets
+                if _is_mcp_toolset_name(t) or t in expanded_parent
+            ]
+        else:
+            child_toolsets = [t for t in toolsets if t in expanded_parent]
+
+        if _get_inherit_mcp_toolsets() and not profile_name:
             child_toolsets = _preserve_parent_mcp_toolsets(
                 child_toolsets, parent_toolsets
             )
@@ -2344,6 +2374,7 @@ def delegate_task(
     acp_command: Optional[str] = None,
     acp_args: Optional[List[str]] = None,
     role: Optional[str] = None,
+    profile: Optional[str] = None,
     background: Optional[bool] = None,
     parent_agent=None,
 ) -> str:
@@ -2358,6 +2389,16 @@ def delegate_task(
     'leaf' (default) cannot; 'orchestrator' retains the delegation
     toolset and can spawn its own workers, bounded by
     delegation.max_spawn_depth.  Per-task role beats the top-level one.
+
+    The 'profile' parameter names an entry in the top-level
+    ``agent_profiles`` config mapping.  When set, the profile's declared
+    toolsets are used as the effective toolset list for the child, and
+    ``profile_name`` is forwarded to ``_build_child_agent`` so that
+    MCP toolsets declared by the profile bypass the parent's toolset
+    intersection.  This is the mechanism that lets fat sub-agents receive
+    their full MCP toolsets even when the orchestrator runs under a
+    ``no_mcp`` platform toolset.  See NousResearch/hermes-agent#32668 and
+    #32727.  Per-task profile beats the top-level one.
 
     Returns JSON with results array, one entry per task.
     """
@@ -2375,6 +2416,39 @@ def delegate_task(
 
     # Normalise the top-level role once; per-task overrides re-normalise.
     top_role = _normalize_role(role)
+
+    # Resolve the top-level named profile once (baseline for tasks that do not
+    # carry their own per-task profile). An unknown name fails closed here
+    # (tool_error) before any child is built. Upstream does not expose a
+    # model-facing toolsets arg — subagents inherit the parent's toolsets — so
+    # a profile is the ONLY way to give a child a toolset list that differs
+    # from the parent (e.g. MCP servers the orchestrator did not load).
+    _profile_overrides: dict = {}
+    if profile:
+        _all_profiles = _load_profiles()
+        try:
+            _profile_overrides = _resolve_profile(profile, _all_profiles)
+        except ValueError as exc:
+            return tool_error(str(exc))
+
+    # ``resolved_profile_name`` activates the mcp-* parent-intersection bypass
+    # in _build_child_agent. It is set ONLY when the resolved profile declares a
+    # non-empty toolsets list — a toolset-less profile must not activate the
+    # bypass (empty-profile bypass security fix, #32668/#32727).
+    resolved_profile_name: Optional[str] = None
+    profile_resolved_toolsets: Optional[list] = None
+    if profile and _profile_overrides:
+        _resolved_profile_toolsets = _profile_overrides.get("toolsets")
+        if _resolved_profile_toolsets and isinstance(_resolved_profile_toolsets, list):
+            resolved_profile_name = profile
+            # Independent copy so later mutation cannot alias the cached config.
+            profile_resolved_toolsets = list(_resolved_profile_toolsets)
+        else:
+            logger.warning(
+                "delegate_task: profile %r has no non-empty toolsets list; "
+                "bypass NOT activated (child inherits parent toolsets).",
+                profile,
+            )
 
     # Background (async) delegation now applies to BOTH single tasks and
     # batches. A batch simply becomes N independent async dispatches: each
@@ -2461,6 +2535,50 @@ def delegate_task(
         if not task.get("goal", "").strip():
             return tool_error(f"Task {i} is missing a 'goal'.")
 
+    # Pre-resolve per-task profiles so an unknown profile name surfaces as a
+    # clean tool_error before any child is constructed (and we only load the
+    # profiles block once for the whole batch). Per-task profile beats the
+    # top-level profile; tasks without one inherit the top-level overrides.
+    #
+    # For each task we record two things:
+    #   _task_profile_overrides[i] — the resolved profile dict (or the
+    #       top-level overrides when the task has no per-task profile), used
+    #       for the child's model / max_iterations / system prompt baseline.
+    #   _task_profile_names[i]     — the effective profile NAME to forward to
+    #       _build_child_agent (activates the mcp-* bypass). Carried ONLY when
+    #       the resolved profile declares a non-empty toolsets list — the same
+    #       empty-profile guard used for ``resolved_profile_name`` above.
+    _task_profile_overrides: List[dict] = []
+    _task_profile_names: List[Optional[str]] = []
+    _task_profile_toolsets: List[Optional[list]] = []
+    _profiles_cache: Optional[dict] = None
+    for t in task_list:
+        task_profile = t.get("profile")
+        if not task_profile:
+            _task_profile_overrides.append(_profile_overrides)
+            _task_profile_names.append(resolved_profile_name)
+            _task_profile_toolsets.append(profile_resolved_toolsets)
+            continue
+        if _profiles_cache is None:
+            _profiles_cache = _load_profiles()
+        try:
+            _task_override = _resolve_profile(task_profile, _profiles_cache)
+        except ValueError as exc:
+            return tool_error(str(exc))
+        _task_profile_overrides.append(_task_override)
+        _task_toolsets = _task_override.get("toolsets")
+        if _task_toolsets and isinstance(_task_toolsets, list):
+            _task_profile_names.append(task_profile)
+            _task_profile_toolsets.append(list(_task_toolsets))
+        else:
+            logger.warning(
+                "delegate_task: per-task profile %r has no non-empty toolsets "
+                "list; bypass NOT activated for this task.",
+                task_profile,
+            )
+            _task_profile_names.append(None)
+            _task_profile_toolsets.append(None)
+
     overall_start = time.monotonic()
     results = []
 
@@ -2485,15 +2603,38 @@ def delegate_task(
             # Per-task role beats top-level; normalise again so unknown
             # per-task values warn and degrade to leaf uniformly.
             effective_role = _normalize_role(t.get("role") or top_role)
+
+            # Per-task profile (pre-resolved above) beats the top-level profile;
+            # tasks without one carry the top-level overrides.
+            task_overrides = _task_profile_overrides[i]
+            task_profile_name = _task_profile_names[i]
+            task_profile_toolsets = _task_profile_toolsets[i]
+
+            # Toolset resolution: when a profile (per-task or top-level) is
+            # authoritative for this task, its declared toolsets are used and
+            # ``profile_name`` activates the mcp-* bypass in _build_child_agent.
+            # Otherwise upstream's default holds — the child inherits the
+            # parent's toolsets (there is no model-facing toolsets arg to
+            # inject undeclared toolsets, so no privilege-escalation vector).
+            child_toolsets_arg = task_profile_toolsets if task_profile_name else None
+            # Config delegation.model wins; otherwise fall back to the profile model.
+            task_model = creds["model"] or task_overrides.get("model")
+            # effective_max_iter is the config default; a profile's
+            # max_iterations beats it when supplied.
+            task_max_iter = effective_max_iter
+            _profile_max_iter = task_overrides.get("max_iterations")
+            if _profile_max_iter:
+                task_max_iter = _profile_max_iter
+
             child = _build_child_agent(
                 task_index=i,
                 goal=t["goal"],
                 context=t.get("context"),
-                # Subagents always inherit the parent's toolsets; the model
-                # cannot choose or narrow them (no model-facing toolsets arg).
-                toolsets=None,
-                model=creds["model"],
-                max_iterations=effective_max_iter,
+                # None -> inherit parent toolsets (upstream default). A resolved
+                # profile supplies an authoritative toolset list instead.
+                toolsets=child_toolsets_arg,
+                model=task_model,
+                max_iterations=task_max_iter,
                 task_count=n_tasks,
                 parent_agent=parent_agent,
                 override_provider=creds["provider"],
@@ -2509,7 +2650,15 @@ def delegate_task(
                     else (acp_args if acp_args is not None else creds.get("args"))
                 ),
                 role=effective_role,
+                profile_name=task_profile_name,
             )
+            # Profile system prompt override: replace the child's ephemeral
+            # system prompt (read at runtime by the conversation loop) when the
+            # resolved profile supplies one. _build_child_agent's signature is
+            # intentionally left untouched — the override is applied here.
+            _profile_prompt = task_overrides.get("system_prompt_text")
+            if _profile_prompt:
+                setattr(child, "ephemeral_system_prompt", _profile_prompt)
             # Override with correct parent tool names (before child construction mutated global)
             child._delegate_saved_tool_names = _parent_tool_names
             children.append((i, t, child))
@@ -3115,6 +3264,58 @@ def _load_config() -> dict:
         return {}
 
 
+def _load_profiles() -> dict:
+    """Read agent_profiles block from full config."""
+    try:
+        from hermes_cli.config import load_config
+        full_config = load_config()
+        return full_config.get("agent_profiles", {})
+    except Exception:
+        return {}
+
+
+def _resolve_profile(name: str, profiles: dict) -> dict:
+    """Validate profile name and resolve system_prompt_file -> system_prompt_text.
+
+    Returns a dict with zero or more of: model, toolsets, max_iterations,
+    system_prompt_text. Unknown keys are preserved for forward-compatibility.
+    """
+    if name not in profiles:
+        available = list(profiles)
+        raise ValueError(
+            f"Unknown agent profile {name!r}. "
+            f"Available profiles: {available if available else '(none configured)'}"
+        )
+    # Deep copy so nested lists/dicts (e.g. toolsets) can never be mutated back
+    # into the cached profiles block by downstream callers.
+    raw = copy.deepcopy(profiles[name])
+    # Resolve system_prompt_file -> system_prompt_text
+    spf = raw.pop("system_prompt_file", None)
+    if spf:
+        import os
+        from pathlib import Path
+        path = Path(os.path.expanduser(os.path.expandvars(str(spf))))
+        try:
+            raw["system_prompt_text"] = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValueError(
+                f"Cannot read system_prompt_file {spf!r} for profile {name!r}: {exc}"
+            ) from exc
+    elif "system_prompt" in raw:
+        raw["system_prompt_text"] = raw.pop("system_prompt")
+    # Coerce max_iterations to int so a YAML string (e.g. "30") or other
+    # non-int value fails fast here instead of corrupting the child budget.
+    if "max_iterations" in raw:
+        try:
+            raw["max_iterations"] = int(raw["max_iterations"])
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"Profile {name!r}: max_iterations must be an integer, "
+                f"got {raw['max_iterations']!r}"
+            ) from exc
+    return raw
+
+
 # ---------------------------------------------------------------------------
 # OpenAI Function-Calling Schema
 # ---------------------------------------------------------------------------
@@ -3401,6 +3602,15 @@ DELEGATE_TASK_SCHEMA = {
                             "enum": ["leaf", "orchestrator"],
                             "description": "Per-task role override. See top-level 'role' for semantics.",
                         },
+                        "profile": {
+                            "type": "string",
+                            "description": (
+                                "Per-task profile override. Beats the top-level 'profile'. "
+                                "See top-level 'profile' for semantics, including the warning "
+                                "that a profile's system_prompt fully replaces the child's "
+                                "default prompt (dropping orchestrator delegation instructions)."
+                            ),
+                        },
                     },
                     "required": ["goal"],
                 },
@@ -3413,6 +3623,20 @@ DELEGATE_TASK_SCHEMA = {
                 "type": "string",
                 "enum": ["leaf", "orchestrator"],
                 "description": "(rebuilt at get_definitions() time)",
+            },
+            "profile": {
+                "type": "string",
+                "description": (
+                    "Name of a profile defined in agent_profiles config. "
+                    "Sets default model, toolsets, max_iterations, and system prompt "
+                    "for this delegation. Explicit call parameters override profile values. "
+                    "WARNING: a profile's system_prompt REPLACES the child's entire default "
+                    "system prompt (it does NOT append). This drops the orchestrator "
+                    "delegation instructions, so a child run under such a profile cannot "
+                    "spawn its own subagents unless its system_prompt re-includes those "
+                    "instructions. Use a system_prompt profile only for leaf workers, or "
+                    "include the delegation guidance yourself."
+                ),
             },
             "background": {
                 "type": "boolean",
@@ -3486,6 +3710,7 @@ registry.register(
         acp_command=args.get("acp_command"),
         acp_args=args.get("acp_args"),
         role=args.get("role"),
+        profile=args.get("profile"),
         background=_model_background_value(args, kw.get("parent_agent")),
         parent_agent=kw.get("parent_agent"),
     ),

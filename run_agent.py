@@ -199,6 +199,9 @@ from agent.trajectory import (
 )
 from agent.tool_dispatch_helpers import (
     _should_parallelize_tool_batch,
+    _is_terminal_call_parallel_safe,  # noqa: F401  # re-exported for tests that `from run_agent import _is_terminal_call_parallel_safe`
+    parallel_batch_active,  # noqa: F401  # re-exported for tests that `from run_agent import parallel_batch_active`
+    parallel_batch_scope,  # noqa: F401  # re-exported for tests that `from run_agent import parallel_batch_scope`
     _is_destructive_command,  # noqa: F401  # re-exported for tests that access `run_agent._is_destructive_command`
     _extract_parallel_scope_path,  # noqa: F401  # re-exported for tests that `from run_agent import _extract_parallel_scope_path`
     _paths_overlap,  # noqa: F401  # re-exported for tests that `from run_agent import _paths_overlap`
@@ -5626,6 +5629,7 @@ class AIAgent:
             acp_command=function_args.get("acp_command"),
             acp_args=function_args.get("acp_args"),
             role=function_args.get("role"),
+            profile=function_args.get("profile"),
             background=(not _is_subagent),
             parent_agent=self,
         )
