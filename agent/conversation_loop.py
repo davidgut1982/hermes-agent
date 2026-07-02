@@ -616,6 +616,12 @@ def run_conversation(
             "messages": messages,
             "api_calls": 0,
             "completed": True,
+            # Shape-consistency with the normal terminal return dicts so
+            # callers/telemetry that key on these never KeyError on a
+            # short-circuited (zero-LLM-call) turn. No LLM ran, so there is no
+            # usage and no cost.
+            "token_usage": None,
+            "cost": 0.0,
         }
 
     # Main conversation loop counters (pure locals consumed by the loop below).

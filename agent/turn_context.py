@@ -456,6 +456,12 @@ def build_turn_context(
             platform=getattr(agent, "platform", None) or "",
             sender_id=getattr(agent, "_user_id", None) or "",
             agent=agent,
+            # Resolved agent-profile name (set by delegate_tool on profiled
+            # subagents). Drives per-profile tier routing in the pre_llm_call
+            # handler (hermes_mpm.routing reads kw.get("profile")). Main-agent
+            # turns have no profile → "" → the handler defers to content
+            # heuristics, so a miss is safe and a hit fixes the tier regression.
+            profile=getattr(agent, "profile", None) or "",
         )
         _ctx_parts: list[str] = []
         for r in _pre_results:

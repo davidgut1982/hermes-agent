@@ -953,6 +953,24 @@ from tools.environments.managed_modal import ManagedModalEnvironment as _Managed
 from tools.managed_tool_gateway import is_managed_tool_gateway_ready
 import sys
 
+# Hoisted from the per-tool-call path (was a runtime import wrapped in a bare
+# except, which silently swallowed a real breakage on every terminal call).
+# Module-level with try/except ImportError so a genuine import break is visible
+# once at load time; the call site guards on ``_parallel_batch_active is not
+# None``. This module is a leaf w.r.t. agent.tool_dispatch_helpers (no import
+# cycle back to terminal_tool), so the top-level import is safe.
+try:
+    from agent.tool_dispatch_helpers import (
+        parallel_batch_active as _parallel_batch_active,
+    )
+except ImportError as _exc:  # pragma: no cover - defensive
+    logger.warning(
+        "terminal_tool: could not import parallel_batch_active "
+        "(parallel-batch snapshot-free path disabled): %s",
+        _exc,
+    )
+    _parallel_batch_active = None
+
 
 # Tool description for LLM
 TERMINAL_TOOL_DESCRIPTION = """Execute shell commands on a Linux environment. Filesystem, current working directory, and exported environment variables persist between calls.
@@ -2599,13 +2617,12 @@ def terminal_tool(
                     # the snapshot-free path so concurrent calls sharing this
                     # task's environment cannot race the session snapshot/cwd
                     # read-modify-write (#38249).
-                    try:
-                        from agent.tool_dispatch_helpers import parallel_batch_active
-
-                        if parallel_batch_active():
-                            execute_kwargs["persist_session"] = False
-                    except Exception:
-                        pass
+                    # Uses the module-level hoisted import (see top of file).
+                    # None only if the import genuinely failed at load (logged
+                    # there once), in which case we simply keep the default
+                    # persist_session behavior.
+                    if _parallel_batch_active is not None and _parallel_batch_active():
+                        execute_kwargs["persist_session"] = False
                     result = env.execute(command, **execute_kwargs)
                 except Exception as e:
                     error_str = str(e).lower()

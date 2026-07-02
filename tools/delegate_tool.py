@@ -1154,6 +1154,14 @@ def _build_child_agent(
         else:
             child_toolsets = [t for t in toolsets if t in expanded_parent]
 
+        # INTENTIONAL: a named profile with a non-empty toolsets list is
+        # authoritative — it supplies its OWN MCP toolsets and does NOT inherit
+        # parent MCP toolsets the profile omits. So the parent-MCP preservation
+        # below is skipped for profiled children (`and not profile_name`). Do
+        # not "fix" this by removing the guard: profile-declared toolsets are
+        # the contract, and re-adding parent MCP toolsets would leak servers the
+        # profile deliberately excluded. Ad-hoc (profile-less) delegation still
+        # preserves parent MCP toolsets here.
         if _get_inherit_mcp_toolsets() and not profile_name:
             child_toolsets = _preserve_parent_mcp_toolsets(
                 child_toolsets, parent_toolsets
@@ -1370,6 +1378,14 @@ def _build_child_agent(
     # Stash the post-degrade role for introspection (leaf if the
     # kill switch or depth bounded the caller's requested role).
     child._delegate_role = effective_role
+    # Stash the resolved agent-profile name as a PLAIN string attribute (no
+    # context-variable / profile-object machinery) so the pre_llm_call routing
+    # handler can read ``kw.get("profile")`` and drive per-profile tier routing
+    # (hermes_mpm.routing.classify's profile_tier_map). Only set when the
+    # delegation used a named profile; otherwise the attribute stays absent
+    # and turn_context passes "" → routing defers to content heuristics.
+    if profile_name:
+        child.profile = profile_name
     # Stash subagent identity for nested-delegation event propagation and
     # for _run_single_child / interrupt_subagent to look up by id.
     child._subagent_id = subagent_id
@@ -2423,9 +2439,14 @@ def delegate_task(
     # model-facing toolsets arg — subagents inherit the parent's toolsets — so
     # a profile is the ONLY way to give a child a toolset list that differs
     # from the parent (e.g. MCP servers the orchestrator did not load).
+    # Read the agent_profiles config block EXACTLY ONCE per delegate_task
+    # invocation. _load_profiles() does a disk read + YAML parse (load_config),
+    # so the top-level resolve below and the per-task loop further down both
+    # reuse this single dict instead of re-reading. Not a process-global cache:
+    # config can change between calls, so it is scoped to this one invocation.
+    _all_profiles = _load_profiles()
     _profile_overrides: dict = {}
     if profile:
-        _all_profiles = _load_profiles()
         try:
             _profile_overrides = _resolve_profile(profile, _all_profiles)
         except ValueError as exc:
@@ -2551,7 +2572,8 @@ def delegate_task(
     _task_profile_overrides: List[dict] = []
     _task_profile_names: List[Optional[str]] = []
     _task_profile_toolsets: List[Optional[list]] = []
-    _profiles_cache: Optional[dict] = None
+    # Reuse the ``_all_profiles`` dict already loaded once at the top of this
+    # invocation — no second disk read/YAML parse for the per-task loop.
     for t in task_list:
         task_profile = t.get("profile")
         if not task_profile:
@@ -2559,10 +2581,8 @@ def delegate_task(
             _task_profile_names.append(resolved_profile_name)
             _task_profile_toolsets.append(profile_resolved_toolsets)
             continue
-        if _profiles_cache is None:
-            _profiles_cache = _load_profiles()
         try:
-            _task_override = _resolve_profile(task_profile, _profiles_cache)
+            _task_override = _resolve_profile(task_profile, _all_profiles)
         except ValueError as exc:
             return tool_error(str(exc))
         _task_profile_overrides.append(_task_override)
@@ -3265,12 +3285,18 @@ def _load_config() -> dict:
 
 
 def _load_profiles() -> dict:
-    """Read agent_profiles block from full config."""
+    """Read agent_profiles block from full config.
+
+    Fails open with ``{}`` on any error (missing/broken config must not break
+    delegation), but logs the exception at WARNING first so a genuine config
+    problem is visible instead of silently swallowing every profile.
+    """
     try:
         from hermes_cli.config import load_config
         full_config = load_config()
         return full_config.get("agent_profiles", {})
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not load agent_profiles config (using none): %s", exc)
         return {}
 
 
