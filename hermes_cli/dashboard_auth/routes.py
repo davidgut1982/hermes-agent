@@ -193,6 +193,20 @@ async def auth_login(request: Request, provider: str, next: str = ""):
             detail=f"Provider does not support interactive login: {provider!r}",
         )
 
+    if getattr(p, "supports_password", False):
+        # Password-only providers have no OAuth redirect flow; start_login()
+        # raises NotImplementedError. Send the browser to the /login credential
+        # form instead of 500-ing (covers stale /auth/login URLs & buttons).
+        # Hardens the auth_login route beyond canonical #54887, which only
+        # guarded the AUTO-SSO redirect in the middleware — a DIRECT hit here
+        # still reached start_login and 500'd.
+        target = f"{_prefix(request)}/login"
+        safe_next = _validate_post_login_target(next)
+        if safe_next:
+            from urllib.parse import quote
+            target = f"{target}?next={quote(safe_next, safe='')}"
+        return RedirectResponse(url=target, status_code=302)
+
     try:
         ls = p.start_login(redirect_uri=_redirect_uri(request))
     except ProviderError as e:
