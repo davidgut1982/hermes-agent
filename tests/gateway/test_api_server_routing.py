@@ -17,7 +17,7 @@ routing methods themselves are unchanged.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -522,3 +522,169 @@ class TestRunAgentInstallsScope:
         assert get_active_profile() is None
         with pytest.raises(ss.UnscopedSecretError):
             ss.get_secret("AGENT_API_KEY")
+
+
+# ---------------------------------------------------------------------------
+# Session creation persists the routed agent_id
+# ---------------------------------------------------------------------------
+
+
+def _make_routed_request(headers: dict, body: dict) -> MagicMock:
+    """Build a mock aiohttp.web.Request with headers and an async json() body.
+
+    Why: _handle_create_session calls both request.headers.get (for auth and
+    routing) and await request.json() (via _read_json_body).  This stubs both
+    without standing up a full aiohttp server.
+    What: Returns a MagicMock whose headers dict supports .get() and whose
+    json coroutine returns the provided body dict.
+    Test: Feed to _handle_create_session and assert on the db.create_session
+    call kwargs.
+    """
+    req = MagicMock()
+    req.headers = headers
+    req.json = AsyncMock(return_value=body)
+    return req
+
+
+class TestSessionCreationPersistsAgentId:
+    """Routing decisions must be stamped on the session row AT CREATION TIME.
+
+    Why: _insert_session_row uses COALESCE(sessions.agent_id, excluded.agent_id)
+    on a NOT NULL DEFAULT 'main' column.  The first writer wins — a later
+    backfill call can never override 'main' once it is written.  Therefore the
+    resolved agent_id must be passed to create_session on the initial write.
+
+    Each test constructs the adapter with routing rules, wires a mock SessionDB,
+    calls the handler directly, then inspects the captured create_session kwargs.
+    """
+
+    @pytest.mark.asyncio
+    async def test_create_session_persists_routed_agent_id(self, tmp_path):
+        """POST /api/sessions with X-Hermes-Chat-Id → routed agent persisted.
+
+        Why: The core regression guard.  Before the fix, create_session was
+        called without agent_id so the row defaulted to 'main'.
+        What: Routes 'coder' chat_id to the 'coder' agent; asserts that
+        db.create_session receives agent_id='coder'.
+        Test: Revert the fix (comment out the resolved_agent_id kwarg) and
+        this test fails because create_session is called without agent_id.
+        """
+        coder = AgentProfile(id="coder", home_dir=tmp_path / "coder")
+        main = AgentProfile(id="main")
+        registry = {"main": main, "coder": coder}
+        routes = [
+            {"match": {"platform": "api_server", "chat_id": "coder"}, "agent": "coder"},
+        ]
+        adapter = _make_adapter(routes=routes, registry=registry)
+
+        mock_db = MagicMock()
+        mock_db.get_session.return_value = None  # no pre-existing session
+        # create_session returns the session_id by convention
+        mock_db.create_session.side_effect = lambda sid, *args, **kwargs: sid
+        adapter._ensure_session_db = lambda: mock_db
+
+        req = _make_routed_request(
+            headers={"X-Hermes-Chat-Id": "coder"},
+            body={"id": "sess-coder-001"},
+        )
+
+        resp = await adapter._handle_create_session(req)
+
+        assert resp.status == 201
+        mock_db.create_session.assert_called_once()
+        call_kwargs = mock_db.create_session.call_args
+        # Positional: (session_id, source); keyword: agent_id=
+        assert call_kwargs.args[0] == "sess-coder-001"
+        assert call_kwargs.args[1] == "api_server"
+        assert call_kwargs.kwargs.get("agent_id") == "coder", (
+            "agent_id must be 'coder' — the routed agent resolved from X-Hermes-Chat-Id. "
+            "If this fails, the fix was not applied or was reverted."
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_session_defaults_to_main_without_routing_header(self):
+        """POST /api/sessions with no routing header → agent_id persisted as 'main'.
+
+        Why: Regression guard for the default path.  No routing header means no
+        agent match; the default agent_id ('main') must be written explicitly
+        (not just relying on the column default) so callers can see it in
+        db.get_session().
+        What: No X-Hermes-Chat-Id supplied; assert agent_id='main'.
+        Test: Pass a header that matches and assert this test fails to prove
+        test sensitivity.
+        """
+        main = AgentProfile(id="main")
+        registry = {"main": main}
+        adapter = _make_adapter(routes=[], registry=registry)
+
+        mock_db = MagicMock()
+        mock_db.get_session.return_value = None
+        mock_db.create_session.side_effect = lambda sid, *args, **kwargs: sid
+        adapter._ensure_session_db = lambda: mock_db
+
+        req = _make_routed_request(
+            headers={},  # no routing headers
+            body={"id": "sess-main-001"},
+        )
+
+        resp = await adapter._handle_create_session(req)
+
+        assert resp.status == 201
+        mock_db.create_session.assert_called_once()
+        call_kwargs = mock_db.create_session.call_args
+        assert call_kwargs.kwargs.get("agent_id") == "main"
+
+    @pytest.mark.asyncio
+    async def test_fork_session_inherits_source_agent_id(self, tmp_path):
+        """POST /api/sessions/{id}/fork → fork row inherits parent's agent_id.
+
+        Why: A fork is a continuation of the parent lineage.  The fork endpoint
+        carries no routing headers, so re-resolving routing would fall back to
+        'main'.  Inheriting the source agent_id is the only correct semantics.
+        What: Source session has agent_id='coder'; fork call must persist
+        agent_id='coder' on the new row, not 'main'.
+        Test: Set source agent_id='coder'; assert fork create_session receives
+        agent_id='coder'.
+        """
+        coder = AgentProfile(id="coder", home_dir=tmp_path / "coder")
+        main = AgentProfile(id="main")
+        registry = {"main": main, "coder": coder}
+        adapter = _make_adapter(routes=[], registry=registry)
+
+        source_session = {
+            "id": "sess-parent",
+            "agent_id": "coder",
+            "model": "claude-3",
+            "system_prompt": None,
+            "title": "my conv",
+        }
+
+        mock_db = MagicMock()
+        # _get_existing_session_or_404 calls db.get_session(source_id)
+        # then fork check calls db.get_session(fork_id)
+        mock_db.get_session.side_effect = lambda sid: (
+            source_session if sid == "sess-parent" else None
+        )
+        mock_db.create_session.side_effect = lambda sid, *args, **kwargs: sid
+        mock_db.get_messages.return_value = []
+        mock_db.replace_messages.return_value = None
+        mock_db.get_next_title_in_lineage.return_value = "my conv fork"
+        mock_db.set_session_title.return_value = None
+        adapter._ensure_session_db = lambda: mock_db
+
+        req = _make_routed_request(
+            headers={},  # fork endpoint: no routing headers
+            body={"id": "sess-fork-001"},
+        )
+        # Inject source_id into match_info as the route does
+        req.match_info = {"session_id": "sess-parent"}
+
+        resp = await adapter._handle_fork_session(req)
+
+        assert resp.status == 201
+        mock_db.create_session.assert_called_once()
+        call_kwargs = mock_db.create_session.call_args
+        assert call_kwargs.args[0] == "sess-fork-001"
+        assert call_kwargs.kwargs.get("agent_id") == "coder", (
+            "Fork must inherit the parent session's agent_id='coder', not 'main'."
+        )
