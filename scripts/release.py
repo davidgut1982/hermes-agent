@@ -762,6 +762,7 @@ AUTHOR_MAP = {
     "bzarnitz13@gmail.com": "Beandon13",
     "tony@tonysimons.dev": "asimons81",
     "jetha@google.com": "jethac",
+    "jethachan@gmail.com": "jethac",
     "jani@0xhoneyjar.xyz": "deep-name",
     # LINE messaging plugin (synthesis PR)
     "32443648+leepoweii@users.noreply.github.com": "leepoweii",
